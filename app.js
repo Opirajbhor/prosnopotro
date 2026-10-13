@@ -612,7 +612,9 @@ function renderSpellResults(targetId, results) {
 function replaceWord(targetId, wrong, right) {
   const el = $(targetId);
   if (!el) return;
-  const re = new RegExp('(^|[\\s।,\\.\\?\\!;:\\(\\)\\[\\]\\{\\}\\"\\'])' + escapeRegex(wrong) + '(?=$|[\\s।,\\.\\?\\!;:\\(\\)\\[\\]\\{\\}\\"\\'])', 'g');
+  const escapedWrong = escapeRegex(wrong);
+  // Use \x27 for single quote — avoids all quote-escaping issues
+  const re = new RegExp('(^|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])' + escapedWrong + '(?=$|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])', 'g');
   el.value = el.value.replace(re, '$1' + right);
   render(); scheduleCache();
   const results = checkTextForMisspellings(el.value);
