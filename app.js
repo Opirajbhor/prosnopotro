@@ -448,8 +448,12 @@ function handleTextareaPaste(e) {
 }
 
 /* ==================== QR ==================== */
-let qrEnabled = localStorage.getItem('qp_qr') !== '0';
-function toggleQR() {
+let qrEnabled = localStorage.getItem('qp_qr') === '1'; let _qrLibLoading = null;  async function ensureQRLib() {   if (typeof qrcode !== 'undefined') return true;   if (_qrLibLoading) return _qrLibLoading;   _qrLibLoading = loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js')     .then(() => true)     .catch(() => { _qrLibLoading = null; return false; });   return _qrLibLoading; }
+async function toggleQR() {
+  if (!qrEnabled) {
+    const ok = await ensureQRLib();
+    if (!ok) { alert('QR লাইব্রেরি লোড করা যায়নি — ইন্টারনেট সংযোগ চেক করুন।'); return; }
+  }
   qrEnabled = !qrEnabled;
   localStorage.setItem('qp_qr', qrEnabled ? '1' : '0');
   updateQrBtn();
@@ -458,8 +462,9 @@ function toggleQR() {
 function updateQrBtn() {
   const btn = $('qrBtn'), txt = $('qrBtnText');
   if (!btn || !txt) return;
-  txt.textContent = qrEnabled ? 'QR ✓' : 'QR ✗';
-  btn.style.opacity = qrEnabled ? '1' : '0.55';
+  txt.textContent = qrEnabled ? 'QR: On' : 'QR: Off';
+  btn.style.opacity = qrEnabled ? '1' : '0.7';
+  btn.title = qrEnabled ? 'QR কোড বন্ধ করুন' : 'QR কোড চালু করুন';
 }
 function buildQRContent() {
   const school = $('school').value.trim();
@@ -1260,7 +1265,7 @@ function buildBlocks() {
             '</div>';
         } else if (totalDividers < MAX_SECTIONS) {
           prefixHtml = '<div class="insert-gap" data-gap="' + i + '">' +
-            '<button class="insert-btn" data-gap="' + i + '">' + (isBijoy() ? 'Add Section' : 'বিভাগ') + '</button>' +
+            '<button class="insert-btn" data-gap="' + i + '">বিভাগ</button>' +
             '<button class="insert-img-btn" data-imgtarget="pasteMain" data-gap="' + i + '">ছবি</button>' +
             '<button class="insert-img-btn insert-tbl-btn" style="left:calc(50% + 100px);" onclick="event.stopPropagation(); openTableEditorNew(\'pasteMain\', ' + i + ', event);" data-gap="' + i + '">টেবিল</button>' +
             '</div>';
@@ -1921,10 +1926,7 @@ function init() {
     el.addEventListener('input', () => { render(); scheduleCache(); });
   });
 
-  ['pasteSmall', 'pasteMain', 'pasteMcq'].forEach(id => {
-    const el = $(id);
-    if (el) el.addEventListener('paste', handleTextareaPaste);
-  });
+
 
   $('page1').addEventListener('click', handlePreviewClick);
   $('page2').addEventListener('click', handlePreviewClick);
