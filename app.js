@@ -2,8 +2,14 @@
 const $ = id => document.getElementById(id);
 const en2bn = s => String(s).replace(/[0-9]/g, d => '০১২৩৪৫৬৭৮৯'[d]);
 function esc(s) {
-  return String(s).replace(/[&<>"']/g, c =>
-    ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  return String(s).replace(/[&<>"']/g, function(c) {
+    if (c === '&') return '\x26amp;';
+    if (c === '<') return '\x26lt;';
+    if (c === '>') return '\x26gt;';
+    if (c === '"') return '\x26quot;';
+    if (c === "'") return '\x26#39;';
+    return c;
+  });
 }
 function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 
