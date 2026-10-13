@@ -1510,4 +1510,431 @@ function exportDoc() {
         const g = groups[i];
         body += '<table style="width:100%;margin-bottom:4pt;" cellpadding="0" cellspacing="0"><tr>' +
           '<td style="width:24pt;vertical-align:top;font-weight:bold;">' + esc(num(i + 1) + '.') + '</td>' +
-          '<td style="vertical-align:top;">' + escWithImgs(g.stimulus) +
+          '<td style="vertical-align:top;">' + escWithImgs(g.stimulus) + '</td></tr></table>';
+        g.subs.forEach(q => {
+          body += '<table style="width:100%;margin:0 0 4pt 24pt;" cellpadding="0" cellspacing="0"><tr>' +
+            '<td style="width:24pt;vertical-align:top;font-weight:bold;">' + esc(q.marker) + '</td>' +
+            '<td style="vertical-align:top;">' + escWithImgs(q.text) + '</td>' +
+            '<td style="width:40pt;text-align:right;vertical-align:top;font-weight:bold;">' + esc(num(q.marks)) + '</td></tr></table>';
+        });
+      }
+    }
+  } else {
+    const mcqs = parseMcq($('pasteMcq').value);
+    if (mcqs.length) {
+      body += P('text-align:center;font-weight:bold;margin:12pt 0 6pt;', esc(getMcqHeading()));
+      mcqs.forEach((q, i) => {
+        body += '<table style="width:100%;margin-top:4pt;" cellpadding="0" cellspacing="0"><tr>' +
+          '<td style="width:24pt;vertical-align:top;font-weight:bold;">' + esc(num(i + 1) + '.') + '</td>' +
+          '<td style="vertical-align:top;">' + escWithImgs(q.question) + '</td></tr></table>';
+        let optsHtml = '';
+        for (let k = 0; k < q.options.length; k += 2) {
+          optsHtml += '<tr>';
+          for (let j = 0; j < 2; j++) {
+            const opt = q.options[k + j];
+            if (opt) optsHtml += '<td style="padding:0 8pt 2pt 0;vertical-align:top;width:50%;">(' + esc(omrLetter(opt.idx)) + ') ' + escWithImgs(opt.text) + '</td>';
+            else optsHtml += '<td></td>';
+          }
+          optsHtml += '</tr>';
+        }
+        body += '<table style="width:100%;margin:0 0 6pt 24pt;" cellpadding="0" cellspacing="0">' + optsHtml + '</table>';
+      });
+    }
+  }
+
+  const stateJson = JSON.stringify(collectState());
+  const comment = '<!-- PROSNOPOTRO_STATE:' + b64encode(stateJson) + ' -->';
+  const html = '<html xmlns:o="urn:schemas-microsoft-com:office:office" ' +
+    'xmlns:w="urn:schemas-microsoft-com:office:word" ' +
+    'xmlns="http://www.w3.org/TR/REC-html40">' +
+    '<head><meta charset="utf-8"><title>Prosnopotro</title>' +
+    comment +
+    '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->' +
+    '<style>@page{size:A4;margin:1.5cm}body{font-family:' + fontName + ';font-size:' + fontSize + 'pt;line-height:1.35}' +
+    'img{max-width:65%;max-height:120pt;display:block;margin:4pt auto;}' +
+    '.img-row{display:flex;gap:12pt;justify-content:center;}' +
+    '.img-row img{max-width:48%;}' +
+    'table.qp-table{border-collapse:collapse;margin:6pt auto;}' +
+    'table.qp-table td,table.qp-table th{border:1pt solid #000;padding:3pt 8pt;}' +
+    'table.qp-table th{background:#f0f0f0;font-weight:bold;text-align:center;}</style>' +
+    '</head><body>' + body + '</body></html>';
+  const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
+  downloadBlob(blob, 'prosnopotro-' + getSubjectFileBase() + '.doc');
+}
+
+/* ==================== EXPORT HELPERS ==================== */
+function showExportLoading() { $('exportLoading').classList.remove('hidden'); }
+function hideExportLoading() { $('exportLoading').classList.add('hidden'); }
+function prepareForCapture() {
+  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove').forEach(el => {
+    el.dataset.prevDisplay = el.style.display;
+    el.style.display = 'none';
+  });
+}
+function restoreAfterCapture() {
+  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove').forEach(el => {
+    el.style.display = el.dataset.prevDisplay || '';
+    delete el.dataset.prevDisplay;
+  });
+}
+
+/* ==================== PDF ==================== */
+async function exportPdf() {
+  closeExportMenu();
+  showExportLoading();
+  try {
+    await ensureHtml2Canvas();
+    await ensureJsPdf();
+    await ensureFontsLoaded();
+  } catch (e) {
+    hideExportLoading();
+    alert('PDF ইঞ্জিন লোড হয়নি — ইন্টারনেট সংযোগ চেক করুন।');
+    return;
+  }
+  try {
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+    const page1El = $('page1'), page2El = $('page2');
+    const page2Wrapper = $('page2-wrapper');
+    const hasP2 = !page2Wrapper.classList.contains('hidden');
+    const prevT1 = page1El.style.transform;
+    const prevT2 = page2El.style.transform;
+    page1El.style.transform = 'none';
+    page2El.style.transform = 'none';
+    prepareForCapture();
+    await new Promise(r => setTimeout(r, 50));
+    const c1 = await html2canvas(page1El, { scale: 1, backgroundColor: '#ffffff', logging: false, useCORS: true });
+    pdf.addImage(c1.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, 210, 297);
+    if (hasP2) {
+      pdf.addPage();
+      const c2 = await html2canvas(page2El, { scale: 1, backgroundColor: '#ffffff', logging: false, useCORS: true });
+      pdf.addImage(c2.toDataURL('image/jpeg', 0.85), 'JPEG', 0, 0, 210, 297);
+    }
+    page1El.style.transform = prevT1;
+    page2El.style.transform = prevT2;
+    restoreAfterCapture();
+    const pdfBlob = pdf.output('blob');
+    const arrayBuf = await pdfBlob.arrayBuffer();
+    const bytes = new Uint8Array(arrayBuf);
+    const stateJson = JSON.stringify(collectState());
+    const marker = '\n%PROSNOPOTRO_STATE:' + b64encode(stateJson) + '\n%%EOF\n';
+    const markerBytes = new TextEncoder().encode(marker);
+    const combined = new Uint8Array(bytes.length + markerBytes.length);
+    combined.set(bytes, 0);
+    combined.set(markerBytes, bytes.length);
+    const finalBlob = new Blob([combined], { type: 'application/pdf' });
+    downloadBlob(finalBlob, 'prosnopotro-' + getSubjectFileBase() + '.pdf');
+  } catch (err) { alert('PDF তৈরি করা যায়নি: ' + err.message); }
+  finally { hideExportLoading(); }
+}
+
+/* ==================== PNG ==================== */
+async function exportPng() {
+  closeExportMenu();
+  showExportLoading();
+  try {
+    await ensureHtml2Canvas();
+    await ensureFontsLoaded();
+  } catch (e) { hideExportLoading(); alert('PNG ইঞ্জিন লোড হয়নি।'); return; }
+  try {
+    const page1 = $('page1'), page2El = $('page2');
+    const page2Wrapper = $('page2-wrapper');
+    const hasP2 = !page2Wrapper.classList.contains('hidden');
+    const prev1 = page1.style.transform;
+    const prev2 = page2El.style.transform;
+    page1.style.transform = 'none';
+    page2El.style.transform = 'none';
+    prepareForCapture();
+    await new Promise(r => setTimeout(r, 50));
+    const c1 = await html2canvas(page1, { scale: 1.5, backgroundColor: '#ffffff', logging: false, useCORS: true });
+    let c2 = null;
+    if (hasP2) c2 = await html2canvas(page2El, { scale: 1.5, backgroundColor: '#ffffff', logging: false, useCORS: true });
+    page1.style.transform = prev1;
+    page2El.style.transform = prev2;
+    restoreAfterCapture();
+    const gap = 20;
+    const final = document.createElement('canvas');
+    final.width = c1.width;
+    final.height = c1.height + (c2 ? c2.height + gap : 0);
+    const ctx = final.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, final.width, final.height);
+    ctx.drawImage(c1, 0, 0);
+    if (c2) ctx.drawImage(c2, 0, c1.height + gap);
+    final.toBlob(blob => { downloadBlob(blob, 'prosnopotro-' + getSubjectFileBase() + '.png'); }, 'image/png');
+  } catch (err) { alert('PNG তৈরি করা যায়নি: ' + err.message); }
+  finally { hideExportLoading(); }
+}
+
+/* ==================== PRINT ==================== */
+function doPrint() {
+  const prev1 = $('page1').style.transform;
+  const prev2 = $('page2').style.transform;
+  $('page1').style.transform = 'none';
+  $('page2').style.transform = 'none';
+  const prevW = [];
+  document.querySelectorAll('.a4-page-wrap').forEach(w => {
+    prevW.push([w, w.style.width, w.style.height, w.style.overflow]);
+    w.style.width = ''; w.style.height = ''; w.style.overflow = '';
+  });
+  setTimeout(() => {
+    window.print();
+    setTimeout(() => {
+      $('page1').style.transform = prev1;
+      $('page2').style.transform = prev2;
+      prevW.forEach(([w, wi, he, ov]) => { w.style.width = wi; w.style.height = he; w.style.overflow = ov; });
+      updatePreviewScale();
+    }, 300);
+  }, 50);
+}
+
+/* ==================== COPY ==================== */
+function copyAsText() {
+  closeExportMenu();
+  const school = $('school').value.trim(), exam = $('exam').value.trim();
+  const cls = $('class').value.trim(), subject = $('subject').value.trim();
+  const subjectCode = $('subjectCode').value.trim();
+  const time = $('time').value.trim(), fullmark = $('fullmark').value.trim();
+  const instruct = $('instructions').value.trim();
+  const lines = [];
+  if (school) lines.push(school);
+  if (exam) lines.push(exam);
+  let subLine = '';
+  if (cls) subLine += 'শ্রেণি: ' + cls;
+  if (subject) subLine += (subLine ? '  |  ' : '') + 'বিষয়: ' + subject;
+  if (subLine) lines.push(subLine);
+  if (subjectCode) lines.push('বিষয় কোড: ' + subjectCode);
+  lines.push('');
+  if (time || fullmark) lines.push('সময়: ' + (time || '—') + '    পূর্ণমান: ' + (fullmark || '—'));
+  if (instruct) lines.push(instruct);
+  lines.push('');
+  const strip = s => String(s).replace(/\[img:[a-zA-Z0-9_]+\]/g, '[ছবি]').replace(/\[table\][\s\S]*?\[\/table\]/g, '[টেবিল]').replace(/\*\*/g, '').replace(/\*/g, '');
+  if (MODE === 'creative') {
+    const small = parseShort($('pasteSmall').value);
+    const { groups } = parseCreative($('pasteMain').value);
+    if (small.length) {
+      lines.push(getShortHeading());
+      let n = 0;
+      small.forEach(q => {
+        let label; if (q.marker) label = q.marker; else { n++; label = num(n) + '.'; }
+        const mark = q.marks !== null ? ' [' + num(q.marks) + ']' : '';
+        lines.push(label + ' ' + strip(q.text) + mark);
+      });
+      lines.push('');
+    }
+    if (groups.length) {
+      lines.push(getCreativeHeading());
+      groups.forEach((g, i) => {
+        if (g.stimulus) lines.push(num(i+1) + '. ' + strip(g.stimulus));
+        else lines.push(num(i+1) + '.');
+        g.subs.forEach(q => lines.push('   ' + q.marker + ' ' + strip(q.text) + ' [' + num(q.marks) + ']'));
+        lines.push('');
+      });
+    }
+  } else {
+    const mcqs = parseMcq($('pasteMcq').value);
+    if (mcqs.length) {
+      lines.push(getMcqHeading());
+      mcqs.forEach((q, i) => {
+        lines.push(num(i+1) + '. ' + strip(q.question));
+        const opts = q.options.map(o => '(' + omrLetter(o.idx) + ') ' + strip(o.text)).join('  ');
+        lines.push('   ' + opts);
+      });
+    }
+  }
+  const text = lines.join('\n');
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => showToast('কপি হয়েছে ✓')).catch(() => fallbackCopy(text));
+  } else fallbackCopy(text);
+}
+function fallbackCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand('copy'); showToast('কপি হয়েছে ✓'); } catch (e) { alert('কপি করা যায়নি'); }
+  document.body.removeChild(ta);
+}
+function showToast(msg) {
+  const el = document.createElement('div');
+  el.textContent = msg;
+  el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#115e59;color:#fff;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-family:inherit';
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1800);
+}
+
+/* ==================== EXPORT MENU ==================== */
+function toggleExportMenu(e) {
+  if (e) e.stopPropagation();
+  $('exportMenu').classList.toggle('hidden');
+}
+function closeExportMenu() { $('exportMenu').classList.add('hidden'); }
+document.addEventListener('click', e => {
+  if (!e.target.closest('#exportMenu') && !e.target.closest('button[onclick*="toggleExportMenu"]')) closeExportMenu();
+});
+
+/* ==================== IMPORT ==================== */
+function triggerImport() { $('docImportInput').click(); }
+async function handleImport(e) {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const name = file.name.toLowerCase();
+  if (name.endsWith('.pdf')) {
+    const buf = await file.arrayBuffer();
+    const bytes = new Uint8Array(buf);
+    const text = new TextDecoder('latin1').decode(bytes);
+    const m = text.match(/%PROSNOPOTRO_STATE:([A-Za-z0-9+/=]+)/);
+    if (!m) { alert('এই PDF ফাইলটি Prosnopotro থেকে তৈরি নয় — Import করা যাবে না।'); return; }
+    try { restoreState(JSON.parse(b64decode(m[1]))); showToast('সফলভাবে পুনরুদ্ধার ✓'); }
+    catch (err) { alert('ফাইলটি পড়তে সমস্যা: ' + err.message); }
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const txt = reader.result;
+    const m = txt.match(/<!--\s*PROSNOPOTRO_STATE:([A-Za-z0-9+/=]+)\s*-->/);
+    if (!m) { alert('এই ফাইলটি Prosnopotro থেকে তৈরি নয়, অথবা ব্যাকআপ ডেটা নেই।'); return; }
+    try { restoreState(JSON.parse(b64decode(m[1]))); showToast('সফলভাবে পুনরুদ্ধার ✓'); }
+    catch (err) { alert('ফাইলটি পড়তে সমস্যা: ' + err.message); }
+  };
+  reader.readAsText(file, 'utf-8');
+}
+
+/* ==================== PRESETS ==================== */
+function getPresets() { try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '{}'); } catch (e) { return {}; } }
+function savePresets(o) { try { localStorage.setItem(PRESET_KEY, JSON.stringify(o)); } catch (e) {} }
+function refreshPresetList() {
+  const sel = $('presetSelect'); const cur = sel.value;
+  const names = Object.keys(getPresets()).sort();
+  sel.innerHTML = '<option value="">-- --</option>' + names.map(k => '<option value="' + esc(k) + '">' + esc(k) + '</option>').join('');
+  if (names.includes(cur)) sel.value = cur;
+}
+function collectPreset() {
+  return { school:$('school').value, exam:$('exam').value, class:$('class').value, subject:$('subject').value,
+    subjectCode:$('subjectCode').value, time:$('time').value, fullmark:$('fullmark').value,
+    instructions:$('instructions').value, fontSize:$('fontSize').value, encoding:$('encoding').value,
+    fontFamily:$('fontFamily').value };
+}
+function savePreset() {
+  const name = prompt('প্রিসেটের নাম দিন:'); if (!name || !name.trim()) return;
+  const presets = getPresets(); const key = name.trim();
+  if (presets[key] && !confirm('"' + key + '" আগেই আছে। ওভাররাইট করবেন?')) return;
+  presets[key] = collectPreset(); savePresets(presets); refreshPresetList(); $('presetSelect').value = key;
+}
+function updatePreset() {
+  const name = $('presetSelect').value;
+  if (!name) { alert('প্রথমে একটি প্রিসেট নির্বাচন করুন।'); return; }
+  if (!confirm('"' + name + '" প্রিসেটটি আপডেট করবেন?')) return;
+  const presets = getPresets(); presets[name] = collectPreset();
+  savePresets(presets); refreshPresetList(); $('presetSelect').value = name;
+}
+function deletePreset() {
+  const name = $('presetSelect').value;
+  if (!name) { alert('প্রথমে একটি প্রিসেট নির্বাচন করুন।'); return; }
+  if (!confirm('"' + name + '" প্রিসেটটি মুছে ফেলবেন?')) return;
+  const presets = getPresets(); delete presets[name];
+  savePresets(presets); refreshPresetList(); $('presetSelect').value = '';
+}
+function loadPreset() {
+  const name = $('presetSelect').value; if (!name) return;
+  const p = getPresets()[name]; if (!p) return;
+  CACHE_FIELDS.forEach(k => { if (p[k] !== undefined) $(k).value = p[k]; });
+  applyTextareaFont();
+  updateSpellBtnState();
+  render(); scheduleCache();
+}
+
+/* ==================== CACHE ==================== */
+let cacheTimer = null;
+function scheduleCache() {
+  clearTimeout(cacheTimer);
+  const el = $('cacheStatus');
+  if (el) {
+    el.textContent = 'সংরক্ষণ হচ্ছে…';
+    el.className = 'text-[13px] leading-none px-2.5 py-1 rounded-full border border-ember-500/40 bg-ember-50 text-ember-700 dark:bg-ember-700/20 dark:text-ember-500 saving-pulse';
+    el.classList.remove('hidden');
+  }
+  cacheTimer = setTimeout(saveCache, 400);
+}
+function saveCache() {
+  const data = { savedAt: Date.now() };
+  CACHE_FIELDS.forEach(k => { data[k] = $(k).value; });
+  try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+  updateCacheStatus();
+}
+function loadCache() {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    CACHE_FIELDS.forEach(k => { if (data[k] !== undefined) $(k).value = data[k]; });
+    return data.savedAt || null;
+  } catch (e) { return null; }
+}
+function updateCacheStatus() {
+  const el = $('cacheStatus'); if (!el) return;
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) { el.classList.add('hidden'); return; }
+    const ts = JSON.parse(raw).savedAt; if (!ts) { el.classList.add('hidden'); return; }
+    const d = new Date(ts);
+    const timeStr = d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+    el.textContent = '✓ অটো সেভ · ' + timeStr;
+    el.className = 'text-[13px] leading-none px-2.5 py-1 rounded-full border border-brand-500/40 bg-brand-50 text-brand-700 dark:bg-brand-700/30 dark:text-brand-200';
+    el.classList.remove('saving-pulse'); el.classList.remove('hidden');
+  } catch (e) { el.classList.add('hidden'); }
+}
+
+function clearAll() {
+  $('pasteSmall').value = ''; $('pasteMain').value = ''; $('pasteMcq').value = '';
+  render(); scheduleCache();
+}
+
+/* ==================== INIT ==================== */
+function init() {
+  applyDark();
+  populateSubjects();
+  applyMode();
+  updateQrBtn();
+
+  const restoredAt = loadCache();
+  if (!restoredAt) {
+    const sel = $('subject');
+    const opt = sel.options[sel.selectedIndex];
+    if (opt && opt.dataset.code) $('subjectCode').value = opt.dataset.code;
+  } else if (!$('instructions').value.trim()) {
+    $('instructions').value = MODE === 'mcq' ? DEFAULT_MCQ_INSTR : DEFAULT_CREATIVE_INSTR;
+  }
+
+  applyTextareaFont();
+  updateSpellBtnState();
+
+  CACHE_FIELDS.forEach(id => {
+    const el = $(id); if (!el) return;
+    el.addEventListener('input', () => { render(); scheduleCache(); });
+  });
+
+  ['pasteSmall', 'pasteMain', 'pasteMcq'].forEach(id => {
+    const el = $(id);
+    if (el) el.addEventListener('paste', handleTextareaPaste);
+  });
+
+  $('page1').addEventListener('click', handlePreviewClick);
+  $('page2').addEventListener('click', handlePreviewClick);
+  window.addEventListener('resize', () => { updatePreviewScale(); });
+  initVoice();
+  initImgEditorListeners();
+
+  refreshPresetList();
+  updateCacheStatus();
+  render();
+
+  setTimeout(loadImagesDeferred, 300);
+
+  if (document.fonts && document.fonts.ready) {
+    Promise.race([
+      document.fonts.ready,
+      new Promise(r => setTimeout(r, 3000))
+    ]).then(() => setTimeout(() => render(), 80));
+  }
+}
+init();
