@@ -67,6 +67,35 @@ html.dark body { color: #e7e5e4; }
 .section-divider .delete-div { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); opacity: 0; background: #b91c1c; color: #fff; border: 0; border-radius: 999px; width: 20px; height: 20px; font-size: 11px; line-height: 1; cursor: pointer; font-weight: 700; font-family: inherit; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .section-divider:hover .delete-div, .section-divider.touch-open .delete-div { opacity: 1; }
 
+/* Spell errors in preview */
+.spell-error {
+  text-decoration: underline wavy #dc2626;
+  text-decoration-skip-ink: none;
+  text-underline-offset: 3px;
+  cursor: help;
+}
+
+/* Duplicate questions in preview */
+.block-q.is-duplicate {
+  background: #fef3c7;
+  border-left: 3px solid #d97706;
+  padding: 4px 8px;
+  border-radius: 4px;
+  position: relative;
+}
+html.dark .block-q.is-duplicate { background: rgba(217, 119, 6, 0.15); }
+.block-q.is-duplicate::before {
+  content: 'পুনরাবৃত্তি';
+  position: absolute;
+  top: 2px; right: 4px;
+  font-size: 9px;
+  font-weight: 700;
+  color: #b45309;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+html.dark .block-q.is-duplicate::before { color: #fbbf24; }
+
 @keyframes savePulse { 0%,100% { opacity: 1; } 50% { opacity: 0.45; } }
 .saving-pulse { animation: savePulse 0.9s ease-in-out infinite; }
 .icon-sun, .icon-moon { transition: opacity 0.15s; }
@@ -85,12 +114,48 @@ textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; 
 
 #imgEditorModal { backdrop-filter: blur(4px); }
 #imgEditorCanvas { max-width: 100%; max-height: 55vh; display: block; cursor: crosshair; user-select: none; touch-action: none; }
-#cropOverlay { position: absolute; border: 2px dashed #115e59; background: rgba(17, 94, 89, 0.15); box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45); pointer-events: none; display: none; }
-#cropOverlay::before, #cropOverlay::after { content: ''; position: absolute; width: 10px; height: 10px; background: #115e59; border: 2px solid #fff; border-radius: 2px; box-shadow: 0 0 4px rgba(0,0,0,0.3); }
-#cropOverlay::before { left: -6px; top: -6px; }
-#cropOverlay::after { right: -6px; bottom: -6px; }
+#cropOverlay {
+  position: absolute;
+  border: 2px dashed #115e59;
+  background: rgba(17, 94, 89, 0.12);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
+  pointer-events: none;
+  display: none;
+}
+.crop-handle {
+  position: absolute;
+  width: 14px; height: 14px;
+  background: #115e59;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  pointer-events: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4);
+  transform: translate(-50%, -50%);
+}
+.crop-handle-n, .crop-handle-s { width: 18px; height: 8px; border-radius: 3px; }
+.crop-handle-w, .crop-handle-e { width: 8px; height: 18px; border-radius: 3px; }
 .img-filter-btn.active { background: #115e59; color: #fff; border-color: #115e59; }
 #exportLoading { backdrop-filter: blur(4px); }
+
+#mathPaletteModal { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+#mathPaletteContent button {
+  padding: 6px 0;
+  border-radius: 4px;
+  font-size: 14px;
+  font-family: inherit;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: #fff;
+  cursor: pointer;
+  transition: background 0.1s;
+  color: #1a1815;
+}
+html.dark #mathPaletteContent button {
+  background: #2b2724;
+  color: #e7e5e4;
+  border-color: rgba(255,255,255,0.1);
+}
+#mathPaletteContent button:hover { background: #eef6f5; }
+html.dark #mathPaletteContent button:hover { background: #115e59; }
 
 @media print {
   @page { size: A4; margin: 0; }
@@ -102,6 +167,9 @@ textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; 
   .table-wrapper .table-remove { display: none !important; }
   .paper-img { cursor: default; border: 0 !important; }
   .paper-block .question-clickable:hover { background: none !important; }
+  .block-q.is-duplicate { background: none !important; border-left: 0 !important; padding: 0 !important; }
+  .block-q.is-duplicate::before { display: none !important; }
+  .spell-error { text-decoration: none !important; }
   .a4-page-wrap { margin: 0 !important; width: auto !important; height: auto !important; overflow: visible !important; }
   .a4-page { width: 210mm !important; height: 297mm !important; padding: 15mm !important; margin: 0 !important; box-shadow: none !important; border: 0 !important; border-radius: 0 !important; background: #fff !important; color: #000 !important; transform: none !important; page-break-inside: avoid !important; break-inside: avoid !important; }
   #page2-wrapper.hidden { display: none !important; }
