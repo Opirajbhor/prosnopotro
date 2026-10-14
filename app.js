@@ -20,7 +20,7 @@ const MODE_TIME = { creative: '২ ঘন্টা ৩০ মিনিট', mcq:
 const CACHE_KEY = 'qp_cache_v1';
 const PRESET_KEY = 'qp_presets_v1';
 const CACHE_FIELDS = ['school','exam','class','subject','subjectCode','time','fullmark','fontSize','fontFamily','encoding','instructions','pasteSmall','pasteMain','pasteMcq'];
-const DIV_MARKER = '@@DIV@@';
+const DIV_MARKER = '\u2063';
 const MAX_SECTIONS = 5;
 const MAX_IMAGES_PER_ROW = 3;
 const SECTION_LABELS_BN = ['ক','খ','গ','ঘ','ঙ'];
@@ -37,6 +37,12 @@ const isKa = ch => ch === 'ক' || ch === 'K';
 function isBijoy() { const el = $('encoding'); return el && el.value === 'bijoy'; }
 function num(n) { return isBijoy() ? String(n) : en2bn(n); }
 
+/* ==================== STATE (spell, dup, zoom) ==================== */
+const misspelledSet = new Set();
+let hasSpellRun = false;
+const duplicateQuestions = new Set();
+let previewZoom = parseFloat(localStorage.getItem('qp_zoom')) || 1;
+
 /* ==================== DARK ==================== */
 function applyDark() {
   document.documentElement.classList.toggle('dark', localStorage.getItem('qp_dark') === '1');
@@ -46,6 +52,103 @@ function toggleDark() {
   localStorage.setItem('qp_dark', next ? '1' : '0');
   applyDark();
 }
+
+/* ==================== ZOOM ==================== */
+function applyZoom() {
+  document.querySelectorAll('.a4-page-wrap').forEach(w => {
+    const page = w.querySelector('.a4-page');
+    if (!page) return;
+    const isMobile = window.innerWidth < 1024;
+    let scale;
+    if (isMobile) {
+      const avail = w.parentElement.clientWidth;
+      scale = Math.min(1, avail / 794) * previewZoom;
+    } else {
+      scale = previewZoom;
+    }
+    w.style.width = (794 * scale) + 'px';
+    w.style.height = (1123 * scale) + 'px';
+    w.style.overflow = 'hidden';
+    page.style.transform = 'scale(' + scale + ')';
+    page.style.transformOrigin = 'top left';
+  });
+  updateZoomDisplay();
+}
+function updateZoomDisplay() {
+  const el = $('zoomLevel');
+  if (el) el.textContent = Math.round(previewZoom * 100) + '%';
+}
+function zoomIn() { previewZoom = Math.min(2, +(previewZoom + 0.1).toFixed(2)); localStorage.setItem('qp_zoom', previewZoom); applyZoom(); }
+function zoomOut() { previewZoom = Math.max(0.3, +(previewZoom - 0.1).toFixed(2)); localStorage.setItem('qp_zoom', previewZoom); applyZoom(); }
+function resetZoom() { previewZoom = 1; localStorage.setItem('qp_zoom', 1); applyZoom(); }
+
+document.addEventListener('wheel', e => {
+  if (!e.ctrlKey) return;
+  const col = $('previewCol');
+  if (!col || !col.contains(e.target)) return;
+  if (window.innerWidth < 1024) return;
+  e.preventDefault();
+  const delta = e.deltaY > 0 ? -0.08 : 0.08;
+  previewZoom = Math.max(0.3, Math.min(2, +(previewZoom + delta).toFixed(2)));
+  localStorage.setItem('qp_zoom', previewZoom);
+  applyZoom();
+}, { passive: false });
+
+/* ==================== UNDO / REDO ==================== */
+const undoStack = [];
+const redoStack = [];
+const MAX_UNDO = 50;
+let undoPaused = false;
+let lastSnapshotStr = '';
+let undoTimer = null;
+
+function takeSnapshot() {
+  const snap = {};
+  CACHE_FIELDS.forEach(k => { const el = $(k); if (el) snap[k] = el.value; });
+  return snap;
+}
+function pushUndoSnapshot() {
+  if (undoPaused) return;
+  const snap = takeSnapshot();
+  const str = JSON.stringify(snap);
+  if (str === lastSnapshotStr) return;
+  undoStack.push(snap);
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+  lastSnapshotStr = str;
+  updateUndoBtns();
+}
+function applySnapshot(snap) {
+  undoPaused = true;
+  CACHE_FIELDS.forEach(k => { if (snap[k] !== undefined && $(k)) $(k).value = snap[k]; });
+  lastSnapshotStr = JSON.stringify(snap);
+  render(); scheduleCache();
+  undoPaused = false;
+}
+function undoAction() {
+  if (undoStack.length < 2) return;
+  redoStack.push(undoStack.pop());
+  applySnapshot(undoStack[undoStack.length - 1]);
+  updateUndoBtns();
+}
+function redoAction() {
+  if (!redoStack.length) return;
+  const snap = redoStack.pop();
+  undoStack.push(snap);
+  applySnapshot(snap);
+  updateUndoBtns();
+}
+function updateUndoBtns() {
+  const u = $('undoBtn'), r = $('redoBtn');
+  if (u) u.disabled = undoStack.length < 2;
+  if (r) r.disabled = redoStack.length === 0;
+}
+document.addEventListener('keydown', e => {
+  const isUndo = (e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === 'z';
+  const isRedo = (e.ctrlKey || e.metaKey) && (e.shiftKey && e.key.toLowerCase() === 'z' || e.key.toLowerCase() === 'y');
+  if (isUndo) { e.preventDefault(); undoAction(); }
+  else if (isRedo) { e.preventDefault(); redoAction(); }
+});
 
 /* ==================== LAZY LOADERS ==================== */
 const _loadedScripts = {};
@@ -75,9 +178,7 @@ async function ensureFontsLoaded() {
     proms.push(document.fonts.load('bold 12px "' + fam + '"').catch(() => {}));
   }
   try { await Promise.all(proms); } catch (e) {}
-  try {
-    await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 2000))]);
-  } catch (e) {}
+  try { await Promise.race([document.fonts.ready, new Promise(r => setTimeout(r, 2000))]); } catch (e) {}
 }
 
 /* ==================== IDB ==================== */
@@ -96,10 +197,7 @@ function openIdb() {
     } catch (e) { res(null); }
   });
 }
-function idbPut(key, val) {
-  if (!idb) return;
-  try { idb.transaction('images','readwrite').objectStore('images').put(val, key); } catch (e) {}
-}
+function idbPut(key, val) { if (!idb) return; try { idb.transaction('images','readwrite').objectStore('images').put(val, key); } catch (e) {} }
 function idbGet(key) {
   return new Promise(res => {
     if (!idb) return res(null);
@@ -110,10 +208,7 @@ function idbGet(key) {
     } catch (e) { res(null); }
   });
 }
-function idbDelete(key) {
-  if (!idb) return;
-  try { idb.transaction('images','readwrite').objectStore('images').delete(key); } catch (e) {}
-}
+function idbDelete(key) { if (!idb) return; try { idb.transaction('images','readwrite').objectStore('images').delete(key); } catch (e) {} }
 function idbGetAll() {
   return new Promise(res => {
     if (!idb) return res([]);
@@ -131,14 +226,10 @@ function idbGetAll() {
 async function loadImagesDeferred() {
   await openIdb();
   const all = await idbGetAll();
-  all.forEach(([k,v]) => {
-    if (k !== 'spell_aff' && k !== 'spell_dic') imageCache.set(k, v);
-  });
+  all.forEach(([k,v]) => { if (k !== 'spell_aff' && k !== 'spell_dic') imageCache.set(k, v); });
   if (all.length) render();
 }
-function nextImgKey() {
-  return 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2,6);
-}
+function nextImgKey() { return 'img_' + Date.now() + '_' + Math.random().toString(36).slice(2,6); }
 
 function compressImage(file) {
   return new Promise(resolve => {
@@ -199,10 +290,33 @@ function imgTag(key) {
   if (!src) return '<span style="color:#dc2626">[ছবি]</span>';
   return '<img class="paper-img" src="' + src + '" alt="ছবি" data-imgkey="' + key + '" onclick="openImgEditor(\'' + key + '\', event)">';
 }
+
+/* Wrap misspelled words with .spell-error */
+function highlightSpellErrors(htmlStr) {
+  if (!hasSpellRun || misspelledSet.size === 0) return htmlStr;
+  /* Only wrap inside text nodes — split on HTML tags */
+  return htmlStr.replace(/(>[^<]+<)/g, (m) => {
+    const inner = m.slice(1, -1);
+    const wrapped = inner.replace(/([^\s।,.:;!?()\[\]{}\"'\n\t]+)/g, (word) => {
+      if (misspelledSet.has(word)) {
+        return '<span class="spell-error">' + word + '</span>';
+      }
+      return word;
+    });
+    return '>' + wrapped + '<';
+  });
+}
+
 function renderInlineText(text) {
   let s = esc(text);
   s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/(^|[^*])\*([^*\n]+?)\*(?!\*)/g, '$1<em>$2</em>');
+  if (hasSpellRun && misspelledSet.size) {
+    s = s.replace(/([^\s।,.:;!?()\[\]{}\"'\n\t<>]+)/g, (word) => {
+      if (misspelledSet.has(word)) return '<span class="spell-error">' + word + '</span>';
+      return word;
+    });
+  }
   return s;
 }
 function escWithImgs(s, targetId) {
@@ -444,26 +558,22 @@ async function ensureQRLib() {
     .catch(() => { _qrLibLoading = null; return false; });
   return _qrLibLoading;
 }
-
 async function toggleQR() {
   if (!qrEnabled) {
     const ok = await ensureQRLib();
-    if (!ok) { alert('QR লাইব্রেরি লোড করা যায়নি — ইন্টারনেট সংযোগ চেক করুন।'); return; }
+    if (!ok) { alert('QR লাইব্রেরি লোড করা যায়নি'); return; }
   }
   qrEnabled = !qrEnabled;
   localStorage.setItem('qp_qr', qrEnabled ? '1' : '0');
   updateQrBtn();
   render();
 }
-
 function updateQrBtn() {
   const btn = $('qrBtn'), txt = $('qrBtnText');
   if (!btn || !txt) return;
   txt.textContent = qrEnabled ? 'QR: On' : 'QR: Off';
   btn.style.opacity = qrEnabled ? '1' : '0.7';
-  btn.title = qrEnabled ? 'QR কোড বন্ধ করুন' : 'QR কোড চালু করুন';
 }
-
 function buildQRContent() {
   const school = $('school').value.trim();
   const cls = $('class').value.trim();
@@ -536,7 +646,6 @@ async function loadSpellEngine() {
   })();
   return spellLoadingPromise;
 }
-
 function extractBanglaWords(text) {
   const cleaned = String(text)
     .replace(/\[img:[a-zA-Z0-9_]+\]/g, ' ')
@@ -544,7 +653,6 @@ function extractBanglaWords(text) {
   return cleaned.split(/[\s।,\.\?\!;:\(\)\[\]\{\}\-\u2013\u2014"'\u2018\u2019\u201C\u201D]+/)
     .filter(w => w.length > 1 && /[\u0980-\u09FF]/.test(w));
 }
-
 async function runSpellCheck() {
   const btn = $('spellBtn');
   const label = $('spellBtnText');
@@ -566,14 +674,17 @@ async function runSpellCheck() {
     btn.disabled = false;
     btn.style.opacity = '';
   }
+  misspelledSet.clear();
   ['pasteSmall', 'pasteMain', 'pasteMcq'].forEach(id => {
     const el = $(id);
     if (!el) return;
     const results = checkTextForMisspellings(el.value);
+    results.forEach(r => misspelledSet.add(r.word));
     renderSpellResults(id, results);
   });
+  hasSpellRun = true;
+  render();
 }
-
 function checkTextForMisspellings(text) {
   if (!spellEngine) return [];
   const words = extractBanglaWords(text);
@@ -587,11 +698,9 @@ function checkTextForMisspellings(text) {
   }
   return [...seen.entries()].map(([word, suggestions]) => ({ word, suggestions }));
 }
-
 function escAttr(s) {
   return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\x26quot;');
 }
-
 function renderSpellResults(targetId, results) {
   const boxId = targetId === 'pasteSmall' ? 'spellSmall'
               : targetId === 'pasteMain' ? 'spellMain' : 'spellMcq';
@@ -611,18 +720,16 @@ function renderSpellResults(targetId, results) {
   const more = results.length > 30 ? '<div class="text-[10px] text-ink-subtle mt-1">আরও ' + (results.length - 30) + 'টি ভুল</div>' : '';
   box.innerHTML = '<div class="mt-1 flex flex-wrap">' + pills + '</div>' + more;
 }
-
 function replaceWord(targetId, wrong, right) {
   const el = $(targetId);
   if (!el) return;
-  const escapedWrong = escapeRegex(wrong);
-  const re = new RegExp('(^|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])' + escapedWrong + '(?=$|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])', 'g');
+  const re = new RegExp('(^|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])' + escapeRegex(wrong) + '(?=$|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])', 'g');
   el.value = el.value.replace(re, '$1' + right);
+  misspelledSet.delete(wrong);
   render(); scheduleCache();
   const results = checkTextForMisspellings(el.value);
   renderSpellResults(targetId, results);
 }
-
 function updateSpellBtnState() {
   const btn = $('spellBtn'), txt = $('spellBtnText');
   if (!btn) return;
@@ -630,17 +737,15 @@ function updateSpellBtnState() {
     btn.disabled = true;
     btn.style.opacity = '0.4';
     btn.style.cursor = 'not-allowed';
-    btn.title = 'শুধু ইউনিকোডে কাজ করে';
     if (txt) txt.textContent = 'বানান পরীক্ষা';
   } else {
     btn.disabled = false;
     btn.style.opacity = '';
     btn.style.cursor = '';
-    btn.title = 'বানান পরীক্ষা';
   }
 }
 
-/* ==================== TEXTAREA FONT ==================== */
+/* ==================== TEXTAREA FONT + ENCODING ==================== */
 function applyTextareaFont() {
   const b = isBijoy();
   ['pasteSmall', 'pasteMain', 'pasteMcq'].forEach(id => {
@@ -652,6 +757,8 @@ function applyTextareaFont() {
 function onEncodingChange() {
   applyTextareaFont();
   updateSpellBtnState();
+  misspelledSet.clear();
+  hasSpellRun = false;
   ['spellSmall', 'spellMain', 'spellMcq'].forEach(id => { const el = $(id); if (el) el.innerHTML = ''; });
   render();
   scheduleCache();
@@ -677,6 +784,61 @@ function applyFormat(targetId, type) {
   }
   el.focus(); render(); scheduleCache();
 }
+
+/* ==================== MATH PALETTE ==================== */
+const MATH_SYMBOLS = [
+  '×','÷','±','√','∛','π','°','∞',
+  '∑','∏','∫','∂','≠','≈','≤','≥',
+  '²','³','ⁿ','½','¼','¾','‰','%',
+  'α','β','γ','δ','θ','λ','μ','σ',
+  '→','←','↔','⇌','∈','∉','∅','∴',
+  '₁','₂','₃','₄','₅','⁰','¹','⁴'
+];
+let mathPaletteOpen = false;
+function buildMathPalette() {
+  const c = $('mathPaletteContent');
+  if (!c) return;
+  c.innerHTML = MATH_SYMBOLS.map(s =>
+    '<button type="button" onclick="insertMathSymbol(\'' + s + '\')">' + s + '</button>'
+  ).join('');
+}
+function toggleMathPalette(targetId, e) {
+  if (e) e.stopPropagation();
+  const modal = $('mathPaletteModal');
+  if (mathPaletteOpen) { modal.classList.add('hidden'); mathPaletteOpen = false; return; }
+  if (!modal.dataset.built) { buildMathPalette(); modal.dataset.built = '1'; }
+  modal.dataset.target = targetId;
+  const ta = $(targetId);
+  modal.classList.remove('hidden');
+  mathPaletteOpen = true;
+  /* Position near textarea */
+  if (ta) {
+    const r = ta.getBoundingClientRect();
+    modal.style.top = Math.max(80, Math.min(window.innerHeight - 220, r.top + 40)) + 'px';
+    modal.style.left = Math.max(20, Math.min(window.innerWidth - 340, r.left + 20)) + 'px';
+    modal.style.transform = 'none';
+  }
+  /* Remember cursor position */
+  if (ta) ta.dataset.cursorPos = ta.selectionStart;
+}
+function insertMathSymbol(sym) {
+  const modal = $('mathPaletteModal');
+  const targetId = modal.dataset.target;
+  const el = $(targetId);
+  if (!el) return;
+  const pos = el.dataset.cursorPos ? +el.dataset.cursorPos : el.selectionStart;
+  el.value = el.value.slice(0, pos) + sym + el.value.slice(pos);
+  el.selectionStart = el.selectionEnd = pos + sym.length;
+  el.dataset.cursorPos = pos + sym.length;
+  render(); scheduleCache();
+}
+document.addEventListener('click', e => {
+  if (!mathPaletteOpen) return;
+  if (e.target.closest('#mathPaletteModal')) return;
+  if (e.target.closest('button[onclick*="toggleMathPalette"]')) return;
+  $('mathPaletteModal').classList.add('hidden');
+  mathPaletteOpen = false;
+});
 
 /* ==================== VOICE ==================== */
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -716,14 +878,23 @@ function stopVoice() {
   recog = null; recogTarget = null;
 }
 
-/* ==================== IMG EDITOR ==================== */
-let imgEditorState = { key: null, originalSrc: null, filter: 'none', brightness: 0, contrast: 0, rotation: 0, crop: null, baseImg: null, cropping: false, cropStart: null };
+/* ==================== IMG EDITOR (with resize handles) ==================== */
+let imgEditorState = {
+  key: null, originalSrc: null, filter: 'none',
+  brightness: 0, contrast: 0, rotation: 0,
+  crop: null, baseImg: null,
+  dragging: false, dragMode: null,
+  startPt: null, origCrop: null
+};
 
 function openImgEditor(key, ev) {
   if (ev) { ev.stopPropagation(); ev.preventDefault(); }
   const src = imageCache.get(key);
   if (!src) return;
-  imgEditorState = { key, originalSrc: src, filter: 'none', brightness: 0, contrast: 0, rotation: 0, crop: null, baseImg: null, cropping: false, cropStart: null };
+  imgEditorState = {
+    key, originalSrc: src, filter: 'none', brightness: 0, contrast: 0, rotation: 0,
+    crop: null, baseImg: null, dragging: false, dragMode: null, startPt: null, origCrop: null
+  };
   $('brightnessSlider').value = 0; $('contrastSlider').value = 0;
   $('brightnessVal').textContent = '0'; $('contrastVal').textContent = '0';
   document.querySelectorAll('.img-filter-btn').forEach(b => b.classList.toggle('active', b.dataset.filter === 'none'));
@@ -780,7 +951,6 @@ function removeImageFromPaper() {
   render(); scheduleCache();
   showToast('ছবি মুছে ফেলা হয়েছে ✓');
 }
-
 function drawEditorCanvas() {
   const state = imgEditorState;
   if (!state.baseImg) return;
@@ -834,29 +1004,105 @@ function canvasPointFromEvent(e, canvas) {
   const scaleX = canvas.width / rect.width, scaleY = canvas.height / rect.height;
   return { x: cx * scaleX, y: cy * scaleY };
 }
+function detectDragMode(pt) {
+  const c = imgEditorState.crop;
+  if (!c || c.w < 5 || c.h < 5) return 'new';
+  const H = 12; // handle hit area in canvas px
+  const { x, y, w, h } = c;
+  const nearL = Math.abs(pt.x - x) < H;
+  const nearR = Math.abs(pt.x - (x + w)) < H;
+  const nearT = Math.abs(pt.y - y) < H;
+  const nearB = Math.abs(pt.y - (y + h)) < H;
+  const inX = pt.x > x - H && pt.x < x + w + H;
+  const inY = pt.y > y - H && pt.y < y + h + H;
+  if (nearL && nearT) return 'nw';
+  if (nearR && nearT) return 'ne';
+  if (nearL && nearB) return 'sw';
+  if (nearR && nearB) return 'se';
+  if (nearT && pt.x > x && pt.x < x + w) return 'n';
+  if (nearB && pt.x > x && pt.x < x + w) return 's';
+  if (nearL && pt.y > y && pt.y < y + h) return 'w';
+  if (nearR && pt.y > y && pt.y < y + h) return 'e';
+  if (pt.x > x && pt.x < x + w && pt.y > y && pt.y < y + h) return 'move';
+  return 'new';
+}
+function setCursorForMode(mode) {
+  const canvas = $('imgEditorCanvas');
+  const cursors = { nw:'nwse-resize', ne:'nesw-resize', sw:'nesw-resize', se:'nwse-resize', n:'ns-resize', s:'ns-resize', w:'ew-resize', e:'ew-resize', move:'move', new:'crosshair' };
+  canvas.style.cursor = cursors[mode] || 'crosshair';
+}
 function startCrop(e) {
   e.preventDefault();
   const canvas = $('imgEditorCanvas');
   const pt = canvasPointFromEvent(e, canvas);
-  imgEditorState.cropping = true; imgEditorState.cropStart = pt;
-  imgEditorState.crop = { x: pt.x, y: pt.y, w: 0, h: 0 };
+  const mode = detectDragMode(pt);
+  imgEditorState.dragging = true;
+  imgEditorState.dragMode = mode;
+  imgEditorState.startPt = pt;
+  if (mode === 'new') {
+    imgEditorState.crop = { x: pt.x, y: pt.y, w: 0, h: 0 };
+    imgEditorState.origCrop = null;
+  } else {
+    imgEditorState.origCrop = Object.assign({}, imgEditorState.crop);
+  }
   updateCropOverlay();
 }
 function moveCrop(e) {
-  if (!imgEditorState.cropping) return;
+  if (!imgEditorState.dragging) {
+    /* Update cursor on hover */
+    if (window.innerWidth >= 1024) {
+      const canvas = $('imgEditorCanvas');
+      if (!canvas || e.target !== canvas) return;
+      const pt = canvasPointFromEvent(e, canvas);
+      setCursorForMode(detectDragMode(pt));
+    }
+    return;
+  }
   e.preventDefault();
   const canvas = $('imgEditorCanvas');
   const pt = canvasPointFromEvent(e, canvas);
-  const start = imgEditorState.cropStart;
-  imgEditorState.crop = {
-    x: Math.min(start.x, pt.x), y: Math.min(start.y, pt.y),
-    w: Math.abs(pt.x - start.x), h: Math.abs(pt.y - start.y)
-  };
+  const mode = imgEditorState.dragMode;
+  const start = imgEditorState.startPt;
+  const orig = imgEditorState.origCrop;
+  const maxW = canvas.width, maxH = canvas.height;
+
+  if (mode === 'new') {
+    imgEditorState.crop = {
+      x: Math.min(start.x, pt.x), y: Math.min(start.y, pt.y),
+      w: Math.abs(pt.x - start.x), h: Math.abs(pt.y - start.y)
+    };
+  } else if (mode === 'move' && orig) {
+    const dx = pt.x - start.x, dy = pt.y - start.y;
+    let nx = orig.x + dx, ny = orig.y + dy;
+    nx = Math.max(0, Math.min(maxW - orig.w, nx));
+    ny = Math.max(0, Math.min(maxH - orig.h, ny));
+    imgEditorState.crop = { x: nx, y: ny, w: orig.w, h: orig.h };
+  } else if (orig) {
+    let { x, y, w, h } = orig;
+    const dx = pt.x - start.x, dy = pt.y - start.y;
+    const right = orig.x + orig.w, bottom = orig.y + orig.h;
+    if (mode.indexOf('n') !== -1) {
+      y = Math.max(0, Math.min(bottom - 10, orig.y + dy));
+      h = bottom - y;
+    }
+    if (mode.indexOf('s') !== -1) {
+      h = Math.max(10, Math.min(maxH - orig.y, orig.h + dy));
+    }
+    if (mode.indexOf('w') !== -1) {
+      x = Math.max(0, Math.min(right - 10, orig.x + dx));
+      w = right - x;
+    }
+    if (mode.indexOf('e') !== -1) {
+      w = Math.max(10, Math.min(maxW - orig.x, orig.w + dx));
+    }
+    imgEditorState.crop = { x, y, w, h };
+  }
   updateCropOverlay();
 }
 function endCrop() {
-  if (!imgEditorState.cropping) return;
-  imgEditorState.cropping = false;
+  if (!imgEditorState.dragging) return;
+  imgEditorState.dragging = false;
+  imgEditorState.dragMode = null;
   const c = imgEditorState.crop;
   if (!c || c.w < 5 || c.h < 5) {
     imgEditorState.crop = null;
@@ -876,6 +1122,20 @@ function updateCropOverlay() {
   overlay.style.top = ((rect.top - wrapRect.top) + c.y * scaleY) + 'px';
   overlay.style.width = (c.w * scaleX) + 'px';
   overlay.style.height = (c.h * scaleY) + 'px';
+  /* Add handles */
+  overlay.innerHTML = '';
+  const handles = [
+    ['nw',0,0],['n',50,0],['ne',100,0],
+    ['w',0,50],['e',100,50],
+    ['sw',0,100],['s',50,100],['se',100,100]
+  ];
+  handles.forEach(([name, px, py]) => {
+    const h = document.createElement('div');
+    h.className = 'crop-handle crop-handle-' + name;
+    h.style.left = px + '%';
+    h.style.top = py + '%';
+    overlay.appendChild(h);
+  });
 }
 function saveImgEdit() {
   const state = imgEditorState;
@@ -907,7 +1167,7 @@ function initImgEditorListeners() {
   canvas.addEventListener('mousedown', startCrop);
   canvas.addEventListener('mousemove', moveCrop);
   canvas.addEventListener('mouseup', endCrop);
-  canvas.addEventListener('mouseleave', endCrop);
+  canvas.addEventListener('mouseleave', e => { endCrop(); });
   canvas.addEventListener('touchstart', startCrop, { passive: false });
   canvas.addEventListener('touchmove', moveCrop, { passive: false });
   canvas.addEventListener('touchend', endCrop);
@@ -940,7 +1200,7 @@ function findDuplicates() {
       if (jaccard(tokens[i], tokens[j]) >= 0.8) dupes.push({ i, j });
     }
   }
-  return { dupes, count: texts.length };
+  return { dupes, count: texts.length, texts };
 }
 
 /* ==================== MODE ==================== */
@@ -1140,10 +1400,11 @@ function scrollTextareaToText(targetId, findText) {
 }
 
 /* ==================== RENDER HELPERS ==================== */
-function shortQHtml(q, n) {
+function shortQHtml(q, n, isDup) {
   const label = q.marker || (num(n) + '.');
   const mark = q.marks !== null ? num(q.marks) : '';
-  return '<div class="question-clickable" data-src="pasteSmall" data-find="' + esc(q.text) + '">' +
+  const dupCls = isDup ? ' is-duplicate' : '';
+  return '<div class="question-clickable' + dupCls + '" data-src="pasteSmall" data-find="' + esc(q.text) + '">' +
     '<div class="flex gap-3 leading-relaxed">' +
     '<span class="font-semibold whitespace-nowrap w-7 shrink-0">' + esc(label) + '</span>' +
     '<span class="flex-1 flex justify-between gap-4">' +
@@ -1151,9 +1412,10 @@ function shortQHtml(q, n) {
     '<span class="font-semibold whitespace-nowrap">' + esc(mark) + '</span>' +
     '</span></div></div>';
 }
-function creativeGroupHtml(g, numLabel) {
+function creativeGroupHtml(g, numLabel, isDup) {
   const findText = g.stimulus || (g.subs[0] ? g.subs[0].text : '');
-  let h = '<div class="question-clickable" data-src="pasteMain" data-find="' + esc(findText) + '">';
+  const dupCls = isDup ? ' is-duplicate' : '';
+  let h = '<div class="question-clickable' + dupCls + '" data-src="pasteMain" data-find="' + esc(findText) + '">';
   if (g.stimulus) {
     h += '<div class="flex gap-3 leading-relaxed">' +
       '<span class="font-semibold whitespace-nowrap w-8 shrink-0">' + esc(numLabel) + '</span>' +
@@ -1170,8 +1432,9 @@ function creativeGroupHtml(g, numLabel) {
   h += '</div></div>';
   return h;
 }
-function mcqHtml(q, n) {
-  return '<div class="mcq question-clickable" data-src="pasteMcq" data-find="' + esc(q.question) + '">' +
+function mcqHtml(q, n, isDup) {
+  const dupCls = isDup ? ' is-duplicate' : '';
+  return '<div class="mcq question-clickable' + dupCls + '" data-src="pasteMcq" data-find="' + esc(q.question) + '">' +
     '<div class="mcq-q"><span class="mcq-num">' + esc(num(n) + '.') + '</span><span class="mcq-text">' + escWithImgs(q.question, 'pasteMcq') + '</span></div>' +
     '<div class="mcq-opts">' +
     q.options.map(opt => '<span class="mcq-opt"><b>(' + esc(omrLetter(opt.idx)) + ')</b>' + escWithImgs(opt.text, 'pasteMcq') + '</span>').join('') +
@@ -1197,6 +1460,30 @@ function buildBlocks() {
   const time = $('time').value.trim();
   const fullmark = $('fullmark').value.trim();
   const instruct = $('instructions').value.trim();
+
+  /* find duplicates before we render */
+  const dupInfo = findDuplicates();
+  const dupSet = new Set();
+  dupInfo.dupes.forEach(d => { dupSet.add(d.i); dupSet.add(d.j); });
+
+  /* Build a map from question-text -> duplicate index for lookup */
+  const dupTexts = new Set();
+  if (MODE === 'mcq') {
+    parseMcq($('pasteMcq').value).forEach((q, i) => {
+      if (dupSet.has(i)) dupTexts.add(q.question);
+    });
+  } else {
+    let idx = 0;
+    parseShort($('pasteSmall').value).forEach(q => {
+      if (dupSet.has(idx)) dupTexts.add(q.text);
+      idx++;
+    });
+    parseCreative($('pasteMain').value).groups.forEach(g => {
+      if (dupSet.has(idx)) dupTexts.add(g.stimulus);
+      idx++;
+    });
+  }
+
   let totalAuto = 0;
   const blocks = [];
 
@@ -1242,7 +1529,11 @@ function buildBlocks() {
     if (small.length) {
       blocks.push({ html: '<h2 class="font-bold text-center">' + esc(getShortHeading()) + '</h2>', cls: 'block-heading' });
       let n = 0;
-      small.forEach(q => { if (!q.marker) n++; blocks.push({ html: shortQHtml(q, n), cls: 'block-q' }); });
+      small.forEach(q => {
+        if (!q.marker) n++;
+        const isDup = dupTexts.has(q.text);
+        blocks.push({ html: shortQHtml(q, n, isDup), cls: 'block-q' + (isDup ? ' is-duplicate' : '') });
+      });
     }
     const groups = creativeInfo.groups;
     const dividerAtGap = creativeInfo.dividerAtGap;
@@ -1267,7 +1558,8 @@ function buildBlocks() {
             '<button class="insert-img-btn insert-tbl-btn" style="left:calc(50% + 100px);" onclick="event.stopPropagation(); openTableEditorNew(\'pasteMain\', ' + i + ', event);" data-gap="' + i + '">টেবিল</button>' +
             '</div>';
         }
-        blocks.push({ html: prefixHtml + creativeGroupHtml(groups[i], num(i + 1) + '.'), cls: 'block-q' });
+        const isDup = dupTexts.has(groups[i].stimulus);
+        blocks.push({ html: prefixHtml + creativeGroupHtml(groups[i], num(i + 1) + '.', isDup), cls: 'block-q' + (isDup ? ' is-duplicate' : '') });
       }
     } else if ($('pasteMain').value.trim()) {
       blocks.push({ html: '<p class="text-center text-red-600 text-sm py-3">সৃজনশীল পার্স করা যায়নি — ফরম্যাট চেক করুন।</p>', cls: 'block-q' });
@@ -1293,7 +1585,8 @@ function buildBlocks() {
           '<button class="insert-img-btn" data-imgtarget="pasteMcq" data-gap="' + i + '">ছবি</button>' +
           '<button class="insert-img-btn insert-tbl-btn" style="left:calc(50% + 55px);" onclick="event.stopPropagation(); openTableEditorNew(\'pasteMcq\', ' + i + ', event);" data-gap="' + i + '">টেবিল</button>' +
           '</div>';
-        blocks.push({ html: gapHtml + mcqHtml(q, i + 1), cls: 'block-q' });
+        const isDup = dupTexts.has(q.question);
+        blocks.push({ html: gapHtml + mcqHtml(q, i + 1, isDup), cls: 'block-q' + (isDup ? ' is-duplicate' : '') });
       });
     } else if ($('pasteMcq').value.trim()) {
       blocks.push({ html: '<p class="text-center text-red-600 text-sm py-3">নৈর্ব্যত্তিক পার্স করা যায়নি — প্রশ্নের পরে অপশন লিখুন।</p>', cls: 'block-q' });
@@ -1305,26 +1598,11 @@ function buildBlocks() {
 /* ==================== PAGINATION ==================== */
 const CONTENT_MAX = 990;
 let _renderQueued = false;
-let _secondaryTimer = null;
 
 function render() {
   if (_renderQueued) return;
   _renderQueued = true;
   requestAnimationFrame(() => { _renderQueued = false; _renderNow(); });
-}
-function scheduleSecondary() {
-  clearTimeout(_secondaryTimer);
-  _secondaryTimer = setTimeout(runSecondaryChecks, 800);
-}
-function runSecondaryChecks() {
-  const dupEl = $('dupWarn');
-  const { dupes, count } = findDuplicates();
-  if (dupes.length && count > 1) {
-    dupEl.classList.remove('hidden');
-    dupEl.innerHTML = '⚠️ সম্ভাব্য পুনরাবৃত্তি: <b>' + dupes.length + '</b> জোড়া প্রশ্ন প্রায় একই রকম';
-  } else {
-    dupEl.classList.add('hidden');
-  }
 }
 function _renderNow() {
   try {
@@ -1365,8 +1643,8 @@ function _renderNow() {
     }
 
     numberFigureCaptions();
-    scheduleSecondary();
-    updatePreviewScale();
+    updateDupWarning(findDuplicates());
+    applyZoom();
 
     if ('ontouchstart' in window) {
       document.querySelectorAll('.insert-gap, .section-divider').forEach(el => {
@@ -1384,31 +1662,23 @@ function _renderNow() {
     $('page1').innerHTML = '<p class="text-red-600 text-sm p-4">Error: ' + err.message + '</p>';
   }
 }
+function updateDupWarning(info) {
+  const dupEl = $('dupWarn');
+  if (!dupEl) return;
+  if (info.dupes.length && info.count > 1) {
+    dupEl.classList.remove('hidden');
+    dupEl.innerHTML = '⚠️ সম্ভাব্য পুনরাবৃত্তি: <b>' + info.dupes.length + '</b> জোড়া প্রশ্ন প্রায় একই রকম';
+  } else {
+    dupEl.classList.add('hidden');
+  }
+}
 
 /* ==================== SCALE ==================== */
-function updatePreviewScale() {
-  const isMobile = window.innerWidth < 1024;
-  document.querySelectorAll('.a4-page-wrap').forEach(w => {
-    const page = w.querySelector('.a4-page');
-    if (!page) return;
-    if (isMobile) {
-      const avail = w.parentElement.clientWidth;
-      const scale = Math.min(1, avail / 794);
-      w.style.width = (794 * scale) + 'px';
-      w.style.height = (1123 * scale) + 'px';
-      w.style.overflow = 'hidden';
-      page.style.transform = 'scale(' + scale + ')';
-      page.style.transformOrigin = 'top left';
-    } else {
-      w.style.width = ''; w.style.height = ''; w.style.overflow = '';
-      page.style.transform = ''; page.style.transformOrigin = '';
-    }
-  });
-}
+function updatePreviewScale() { applyZoom(); }
 
 /* ==================== STATE ==================== */
 function collectState() {
-  const state = { v: 1, mode: MODE, qr: qrEnabled, images: [...imageCache.entries()] };
+  const state = { v: 1, mode: MODE, qr: qrEnabled, zoom: previewZoom, images: [...imageCache.entries()] };
   CACHE_FIELDS.forEach(k => { state[k] = $(k).value; });
   return state;
 }
@@ -1419,6 +1689,10 @@ function restoreState(data) {
     qrEnabled = data.qr;
     localStorage.setItem('qp_qr', qrEnabled ? '1' : '0');
     updateQrBtn();
+  }
+  if (data.zoom !== undefined) {
+    previewZoom = data.zoom;
+    localStorage.setItem('qp_zoom', previewZoom);
   }
   if (Array.isArray(data.images)) {
     for (const [k, v] of data.images) { imageCache.set(k, v); idbPut(k, v); }
@@ -1598,7 +1872,7 @@ async function exportPdf() {
     await ensureFontsLoaded();
   } catch (e) {
     hideExportLoading();
-    alert('PDF ইঞ্জিন লোড হয়নি — ইন্টারনেট সংযোগ চেক করুন।');
+    alert('PDF ইঞ্জিন লোড হয়নি');
     return;
   }
   try {
@@ -1645,7 +1919,7 @@ async function exportPng() {
   try {
     await ensureHtml2Canvas();
     await ensureFontsLoaded();
-  } catch (e) { hideExportLoading(); alert('PNG ইঞ্জিন লোড হয়নি।'); return; }
+  } catch (e) { hideExportLoading(); alert('PNG ইঞ্জিন লোড হয়নি'); return; }
   try {
     const page1 = $('page1'), page2El = $('page2');
     const page2Wrapper = $('page2-wrapper');
@@ -1679,22 +1953,16 @@ async function exportPng() {
 function doPrint() {
   const prev1 = $('page1').style.transform;
   const prev2 = $('page2').style.transform;
-  $('page1').style.transform = 'none';
-  $('page2').style.transform = 'none';
-  const prevW = [];
-  document.querySelectorAll('.a4-page-wrap').forEach(w => {
-    prevW.push([w, w.style.width, w.style.height, w.style.overflow]);
-    w.style.width = ''; w.style.height = ''; w.style.overflow = '';
-  });
+  const prevZoom = previewZoom;
+  previewZoom = 1;
+  applyZoom();
   setTimeout(() => {
     window.print();
     setTimeout(() => {
-      $('page1').style.transform = prev1;
-      $('page2').style.transform = prev2;
-      prevW.forEach(([w, wi, he, ov]) => { w.style.width = wi; w.style.height = he; w.style.overflow = ov; });
-      updatePreviewScale();
+      previewZoom = prevZoom;
+      applyZoom();
     }, 300);
-  }, 50);
+  }, 100);
 }
 
 /* ==================== COPY ==================== */
@@ -1793,7 +2061,7 @@ async function handleImport(e) {
     const bytes = new Uint8Array(buf);
     const text = new TextDecoder('latin1').decode(bytes);
     const m = text.match(/%PROSNOPOTRO_STATE:([A-Za-z0-9+/=]+)/);
-    if (!m) { alert('এই PDF ফাইলটি Prosnopotro থেকে তৈরি নয় — Import করা যাবে না।'); return; }
+    if (!m) { alert('এই PDF ফাইলটি Prosnopotro থেকে তৈরি নয়'); return; }
     try { restoreState(JSON.parse(b64decode(m[1]))); showToast('সফলভাবে পুনরুদ্ধার ✓'); }
     catch (err) { alert('ফাইলটি পড়তে সমস্যা: ' + err.message); }
     return;
@@ -1802,7 +2070,7 @@ async function handleImport(e) {
   reader.onload = () => {
     const txt = reader.result;
     const m = txt.match(/<!--\s*PROSNOPOTRO_STATE:([A-Za-z0-9+/=]+)\s*-->/);
-    if (!m) { alert('এই ফাইলটি Prosnopotro থেকে তৈরি নয়, অথবা ব্যাকআপ ডেটা নেই।'); return; }
+    if (!m) { alert('এই ফাইলটি Prosnopotro থেকে তৈরি নয়'); return; }
     try { restoreState(JSON.parse(b64decode(m[1]))); showToast('সফলভাবে পুনরুদ্ধার ✓'); }
     catch (err) { alert('ফাইলটি পড়তে সমস্যা: ' + err.message); }
   };
@@ -1893,10 +2161,22 @@ function updateCacheStatus() {
     el.classList.remove('saving-pulse'); el.classList.remove('hidden');
   } catch (e) { el.classList.add('hidden'); }
 }
-
 function clearAll() {
   $('pasteSmall').value = ''; $('pasteMain').value = ''; $('pasteMcq').value = '';
+  misspelledSet.clear();
+  hasSpellRun = false;
   render(); scheduleCache();
+}
+
+/* ==================== MIGRATION ==================== */
+function migrateDivMarkers() {
+  ['pasteSmall', 'pasteMain', 'pasteMcq'].forEach(id => {
+    const el = $(id);
+    if (!el) return;
+    if (el.value.indexOf('@@DIV@@') !== -1) {
+      el.value = el.value.replace(/@@DIV@@/g, DIV_MARKER);
+    }
+  });
 }
 
 /* ==================== INIT ==================== */
@@ -1905,6 +2185,7 @@ function init() {
   populateSubjects();
   applyMode();
   updateQrBtn();
+  updateZoomDisplay();
 
   const restoredAt = loadCache();
   if (!restoredAt) {
@@ -1915,22 +2196,32 @@ function init() {
     $('instructions').value = MODE === 'mcq' ? DEFAULT_MCQ_INSTR : DEFAULT_CREATIVE_INSTR;
   }
 
+  migrateDivMarkers();
   applyTextareaFont();
   updateSpellBtnState();
 
   CACHE_FIELDS.forEach(id => {
     const el = $(id); if (!el) return;
-    el.addEventListener('input', () => { render(); scheduleCache(); });
+    el.addEventListener('input', () => {
+      render(); scheduleCache();
+      clearTimeout(undoTimer);
+      undoTimer = setTimeout(pushUndoSnapshot, 600);
+    });
   });
 
   $('page1').addEventListener('click', handlePreviewClick);
   $('page2').addEventListener('click', handlePreviewClick);
-  window.addEventListener('resize', () => { updatePreviewScale(); });
+  window.addEventListener('resize', () => { applyZoom(); });
   initVoice();
   initImgEditorListeners();
 
   refreshPresetList();
   updateCacheStatus();
+
+  /* Initial undo snapshot */
+  pushUndoSnapshot();
+  updateUndoBtns();
+
   render();
 
   setTimeout(loadImagesDeferred, 300);
