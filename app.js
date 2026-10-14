@@ -431,24 +431,20 @@ function removeTable(targetId, idx, e) {
   render(); scheduleCache();
   showToast('টেবিল মুছে ফেলা হয়েছে ✓');
 }
-function handleTextareaPaste(e) {
-  const text = (e.clipboardData || window.clipboardData).getData('text');
-  if (!text) return;
-  if (text.indexOf('\t') !== -1 && text.indexOf('\n') !== -1) {
-    e.preventDefault();
-    const rows = text.replace(/\r\n?/g, '\n').split('\n').filter(l => l.trim()).map(l => l.split('\t').map(c => c.trim()));
-    if (rows.length >= 2) {
-      const blockText = '\n[table]\n' + rows.map(r => r.join(' | ')).join('\n') + '\n[/table]\n';
-      const el = e.target;
-      const start = el.selectionStart;
-      el.value = el.value.slice(0, start) + blockText + el.value.slice(el.selectionEnd);
-      render(); scheduleCache();
-    }
-  }
-}
 
 /* ==================== QR ==================== */
-let qrEnabled = localStorage.getItem('qp_qr') === '1'; let _qrLibLoading = null;  async function ensureQRLib() {   if (typeof qrcode !== 'undefined') return true;   if (_qrLibLoading) return _qrLibLoading;   _qrLibLoading = loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js')     .then(() => true)     .catch(() => { _qrLibLoading = null; return false; });   return _qrLibLoading; }
+let qrEnabled = localStorage.getItem('qp_qr') === '1';
+let _qrLibLoading = null;
+
+async function ensureQRLib() {
+  if (typeof qrcode !== 'undefined') return true;
+  if (_qrLibLoading) return _qrLibLoading;
+  _qrLibLoading = loadScript('https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js')
+    .then(() => true)
+    .catch(() => { _qrLibLoading = null; return false; });
+  return _qrLibLoading;
+}
+
 async function toggleQR() {
   if (!qrEnabled) {
     const ok = await ensureQRLib();
@@ -459,6 +455,7 @@ async function toggleQR() {
   updateQrBtn();
   render();
 }
+
 function updateQrBtn() {
   const btn = $('qrBtn'), txt = $('qrBtnText');
   if (!btn || !txt) return;
@@ -466,6 +463,7 @@ function updateQrBtn() {
   btn.style.opacity = qrEnabled ? '1' : '0.7';
   btn.title = qrEnabled ? 'QR কোড বন্ধ করুন' : 'QR কোড চালু করুন';
 }
+
 function buildQRContent() {
   const school = $('school').value.trim();
   const cls = $('class').value.trim();
@@ -591,7 +589,7 @@ function checkTextForMisspellings(text) {
 }
 
 function escAttr(s) {
-  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+  return String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/"/g, '\x26quot;');
 }
 
 function renderSpellResults(targetId, results) {
@@ -618,7 +616,6 @@ function replaceWord(targetId, wrong, right) {
   const el = $(targetId);
   if (!el) return;
   const escapedWrong = escapeRegex(wrong);
-  // Use \x27 for single quote — avoids all quote-escaping issues
   const re = new RegExp('(^|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])' + escapedWrong + '(?=$|[\\s।,.:;!?()\\[\\]{}\"\\x27\\n\\t])', 'g');
   el.value = el.value.replace(re, '$1' + right);
   render(); scheduleCache();
@@ -985,7 +982,7 @@ const NCTB_SUBJECTS = [
   { name:'ইসলাম শিক্ষা', code:'১১১' }, { name:'হিন্দুধর্ম শিক্ষা', code:'১১২' },
   { name:'বৌদ্ধধর্ম শিক্ষা', code:'১১৩' }, { name:'খ্রীষ্টধর্ম শিক্ষা', code:'১১৪' },
   { name:'আরবি', code:'১২১' }, { name:'সংস্কৃত', code:'১২৩' },
-  { name:'পালি', code:'১২৪' }, { name:'সংগীত', code:'১৪৯' },
+  { name:'পালি', code:'১২৪' }, { name:'সংগীত', code:'১৪৯' }
 ];
 function populateSubjects() {
   const sel = $('subject');
@@ -1209,7 +1206,7 @@ function buildBlocks() {
   if (cls || subject) {
     header += '<div style="font-weight:600;margin-top:4px;line-height:1.35;">';
     if (cls) header += (isBijoy() ? '†kÖYx' : 'শ্রেণি') + ': ' + esc(cls);
-    if (cls && subject) header += ' &nbsp;|&nbsp; ';
+    if (cls && subject) header += ' \x26nbsp;|\x26nbsp; ';
     if (subject) header += (isBijoy() ? 'welq' : 'বিষয়') + ': ' + esc(subject);
     header += '</div>';
   }
@@ -1474,7 +1471,7 @@ function exportDoc() {
   if (cls || subject) {
     let line = '';
     if (cls) line += (isBijoy() ? '†kÖYx: ' : 'শ্রেণি: ') + esc(cls);
-    if (cls && subject) line += ' &nbsp;|&nbsp; ';
+    if (cls && subject) line += ' \x26nbsp;|\x26nbsp; ';
     if (subject) line += (isBijoy() ? 'welq: ' : 'বিষয়: ') + esc(subject);
     body += P('text-align:center;font-weight:bold;margin:0 0 6pt;', line);
   }
@@ -1925,8 +1922,6 @@ function init() {
     const el = $(id); if (!el) return;
     el.addEventListener('input', () => { render(); scheduleCache(); });
   });
-
-
 
   $('page1').addEventListener('click', handlePreviewClick);
   $('page2').addEventListener('click', handlePreviewClick);
