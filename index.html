@@ -20,7 +20,6 @@ tailwind.config = {
   }}}
 };
 </script>
-<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js" defer></script>
 <link href="https://fonts.maateen.me/kalpurush/font.css" rel="stylesheet">
 <link href="https://fonts.maateen.me/nikosh/font.css" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
@@ -29,13 +28,10 @@ tailwind.config = {
 
 <div class="max-w-[1500px] mx-auto">
 
-  <!-- Header -->
   <div class="flex flex-wrap items-center justify-between gap-3 mb-4 no-print">
     <div class="flex items-center gap-3 flex-wrap">
       <h1 class="text-2xl font-bold text-brand-700 dark:text-brand-200 tracking-tight">Prosnopotro</h1>
       <span id="cacheStatus" class="hidden text-[13px] leading-none px-2.5 py-1 rounded-full border"></span>
-  <p>v1.05</p>
-      
     </div>
     <div class="flex items-center gap-2">
       <button onclick="runSpellCheck()" id="spellBtn" title="বানান পরীক্ষা"
@@ -68,7 +64,6 @@ tailwind.config = {
 
   <div class="grid grid-cols-1 lg:grid-cols-10 gap-6">
 
-    <!-- Form -->
     <div class="lg:order-2 lg:col-span-3 no-print scroll-col pr-1">
       <div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-edge-light dark:border-edge-dark p-4 space-y-3">
 
@@ -226,25 +221,24 @@ tailwind.config = {
       </div>
     </div>
 
-    <!-- Preview -->
     <div class="lg:order-1 lg:col-span-7 scroll-col pr-1">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-2 no-print sticky top-0 z-20 bg-paper-light dark:bg-paper-dark py-1">
         <h2 class="text-sm font-semibold text-ink-muted dark:text-ink-dark-muted">প্রিভিউ (A4)</h2>
         <div class="flex flex-wrap gap-2">
           <button onclick="doPrint()" class="bg-slate-600 hover:bg-slate-700 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm">Print</button>
-         <button onclick="toggleQR()" id="qrBtn" title="QR কোড দেখাও/লুকাও"
-  class="bg-slate-500 hover:bg-slate-600 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm flex items-center gap-1.5">
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-    <rect x="3" y="3" width="6" height="6" rx="0.5"/>
-    <rect x="15" y="3" width="6" height="6" rx="0.5"/>
-    <rect x="3" y="15" width="6" height="6" rx="0.5"/>
-    <path d="M15 15h2v2h-2z"/>
-    <path d="M19 15h2v2h-2z"/>
-    <path d="M15 19h2v2h-2z"/>
-    <path d="M19 19h2v2h-2z"/>
-  </svg>
-  <span id="qrBtnText">QR: Off</span>
-</button>
+          <button onclick="toggleQR()" id="qrBtn" title="QR কোড দেখাও/লুকাও"
+            class="bg-slate-500 hover:bg-slate-600 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm flex items-center gap-1.5" style="opacity:0.7">
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="3" width="6" height="6" rx="0.5"/>
+              <rect x="15" y="3" width="6" height="6" rx="0.5"/>
+              <rect x="3" y="15" width="6" height="6" rx="0.5"/>
+              <path d="M15 15h2v2h-2z"/>
+              <path d="M19 15h2v2h-2z"/>
+              <path d="M15 19h2v2h-2z"/>
+              <path d="M19 19h2v2h-2z"/>
+            </svg>
+            <span id="qrBtnText">QR: Off</span>
+          </button>
           <div class="relative">
             <button onclick="toggleExportMenu(event)"
               class="bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm flex items-center gap-1.5">
@@ -273,7 +267,6 @@ tailwind.config = {
   </div>
 </div>
 
-<!-- Image Editor Modal -->
 <div id="imgEditorModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 no-print">
   <div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-edge-light dark:border-edge-dark max-w-3xl w-full max-h-[90vh] flex flex-col">
     <div class="flex items-center justify-between p-3 border-b border-edge-light dark:border-edge-dark">
@@ -321,7 +314,6 @@ tailwind.config = {
   </div>
 </div>
 
-<!-- Table Editor Modal -->
 <div id="tableEditorModal" class="hidden fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 no-print">
   <div class="bg-surface-light dark:bg-surface-dark rounded-xl border border-edge-light dark:border-edge-dark max-w-3xl w-full max-h-[90vh] flex flex-col">
     <div class="flex items-center justify-between p-3 border-b border-edge-light dark:border-edge-dark">
@@ -357,7 +349,6 @@ tailwind.config = {
   </div>
 </div>
 
-<!-- Export Loading -->
 <div id="exportLoading" class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center no-print">
   <div class="bg-white dark:bg-slate-800 rounded-xl px-6 py-5 flex items-center gap-3 shadow-2xl">
     <div class="w-5 h-5 border-2 border-brand-500 border-t-transparent rounded-full animate-spin"></div>
