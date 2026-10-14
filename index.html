@@ -34,6 +34,16 @@ tailwind.config = {
       <span id="cacheStatus" class="hidden text-[13px] leading-none px-2.5 py-1 rounded-full border"></span>
     </div>
     <div class="flex items-center gap-2">
+      <button onclick="undoAction()" id="undoBtn" title="Undo (Ctrl+Z)" class="bg-surface-light dark:bg-surface-dark border border-edge-light dark:border-edge-dark rounded-full w-9 h-9 flex items-center justify-center hover:border-brand-500 dark:hover:border-brand-200 transition disabled:opacity-40">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 7v6h6"></path><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+        </svg>
+      </button>
+      <button onclick="redoAction()" id="redoBtn" title="Redo (Ctrl+Y)" class="bg-surface-light dark:bg-surface-dark border border-edge-light dark:border-edge-dark rounded-full w-9 h-9 flex items-center justify-center hover:border-brand-500 dark:hover:border-brand-200 transition disabled:opacity-40">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 7v6h-6"></path><path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13"></path>
+        </svg>
+      </button>
       <button onclick="runSpellCheck()" id="spellBtn" title="বানান পরীক্ষা"
         class="bg-surface-light dark:bg-surface-dark border border-edge-light dark:border-edge-dark rounded-full px-3 py-1.5 text-sm font-semibold hover:border-brand-500 dark:hover:border-brand-200 transition flex items-center gap-1.5">
         <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -172,9 +182,10 @@ tailwind.config = {
               <label class="text-xs font-medium text-ink-muted dark:text-ink-dark-muted">১২. সংক্ষিপ্ত অংশ</label>
               <button type="button" id="micSmall" onclick="toggleVoice('pasteSmall')" class="mic-btn hidden text-[11px] bg-white dark:bg-surface-dark border border-edge-light dark:border-edge-dark px-2 py-1 rounded-md">🎤</button>
             </div>
-            <div class="format-toolbar flex gap-1 mb-1">
+            <div class="format-toolbar flex gap-1 mb-1 items-center">
               <button type="button" onclick="applyFormat('pasteSmall','bold')" class="text-xs font-bold px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">B</button>
               <button type="button" onclick="applyFormat('pasteSmall','italic')" class="text-xs italic px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">I</button>
+              <button type="button" onclick="toggleMathPalette('mathSmall', event)" class="text-xs px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20 font-bold">∑</button>
             </div>
             <textarea id="pasteSmall" rows="6" class="w-full rounded-md border border-edge-light dark:border-edge-dark bg-white dark:bg-surface-dark px-3 py-2 text-sm"></textarea>
             <div id="spellSmall" class="text-[11px] mt-1"></div>
@@ -184,9 +195,10 @@ tailwind.config = {
               <label class="text-xs font-medium text-ink-muted dark:text-ink-dark-muted">১৩. সৃজনশীল অংশ</label>
               <button type="button" id="micMain" onclick="toggleVoice('pasteMain')" class="mic-btn hidden text-[11px] bg-white dark:bg-surface-dark border border-edge-light dark:border-edge-dark px-2 py-1 rounded-md">🎤</button>
             </div>
-            <div class="format-toolbar flex gap-1 mb-1">
+            <div class="format-toolbar flex gap-1 mb-1 items-center">
               <button type="button" onclick="applyFormat('pasteMain','bold')" class="text-xs font-bold px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">B</button>
               <button type="button" onclick="applyFormat('pasteMain','italic')" class="text-xs italic px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">I</button>
+              <button type="button" onclick="toggleMathPalette('mathMain', event)" class="text-xs px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20 font-bold">∑</button>
             </div>
             <textarea id="pasteMain" rows="14" class="w-full rounded-md border border-edge-light dark:border-edge-dark bg-white dark:bg-surface-dark px-3 py-2 text-sm"></textarea>
             <div id="spellMain" class="text-[11px] mt-1"></div>
@@ -199,9 +211,10 @@ tailwind.config = {
               <label class="text-xs font-medium text-ink-muted dark:text-ink-dark-muted">১২. নৈর্ব্যত্তিক অংশ</label>
               <button type="button" id="micMcq" onclick="toggleVoice('pasteMcq')" class="mic-btn hidden text-[11px] bg-white dark:bg-surface-dark border border-edge-light dark:border-edge-dark px-2 py-1 rounded-md">🎤</button>
             </div>
-            <div class="format-toolbar flex gap-1 mb-1">
+            <div class="format-toolbar flex gap-1 mb-1 items-center">
               <button type="button" onclick="applyFormat('pasteMcq','bold')" class="text-xs font-bold px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">B</button>
               <button type="button" onclick="applyFormat('pasteMcq','italic')" class="text-xs italic px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20">I</button>
+              <button type="button" onclick="toggleMathPalette('mathMcq', event)" class="text-xs px-2 py-0.5 border border-edge-light dark:border-edge-dark rounded hover:bg-stone-100 dark:hover:bg-brand-700/20 font-bold">∑</button>
             </div>
             <textarea id="pasteMcq" rows="16" placeholder="রাজধানীর নাম কী?
 ক) ঢাকা
@@ -221,10 +234,16 @@ tailwind.config = {
       </div>
     </div>
 
-    <div class="lg:order-1 lg:col-span-7 scroll-col pr-1">
+    <div class="lg:order-1 lg:col-span-7 scroll-col pr-1" id="previewCol">
       <div class="flex flex-wrap items-center justify-between gap-2 mb-2 no-print sticky top-0 z-20 bg-paper-light dark:bg-paper-dark py-1">
         <h2 class="text-sm font-semibold text-ink-muted dark:text-ink-dark-muted">প্রিভিউ (A4)</h2>
-        <div class="flex flex-wrap gap-2">
+        <div class="flex flex-wrap gap-2 items-center">
+          <div class="flex items-center gap-0.5 bg-white dark:bg-surface-dark border border-edge-light dark:border-edge-dark rounded-md overflow-hidden">
+            <button onclick="zoomOut()" class="px-2 py-1.5 text-xs font-bold hover:bg-stone-100 dark:hover:bg-brand-700/20" title="Zoom out">−</button>
+            <span id="zoomLevel" class="text-[11px] font-semibold px-1.5 select-none">100%</span>
+            <button onclick="zoomIn()" class="px-2 py-1.5 text-xs font-bold hover:bg-stone-100 dark:hover:bg-brand-700/20" title="Zoom in">+</button>
+            <button onclick="resetZoom()" class="px-2 py-1.5 text-[11px] font-bold hover:bg-stone-100 dark:hover:bg-brand-700/20 border-l border-edge-light dark:border-edge-dark" title="Reset zoom">↺</button>
+          </div>
           <button onclick="doPrint()" class="bg-slate-600 hover:bg-slate-700 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm">Print</button>
           <button onclick="toggleQR()" id="qrBtn" title="QR কোড দেখাও/লুকাও"
             class="bg-slate-500 hover:bg-slate-600 text-white text-xs font-semibold px-3.5 py-2 rounded-md transition shadow-sm flex items-center gap-1.5" style="opacity:0.7">
@@ -254,13 +273,15 @@ tailwind.config = {
           </div>
         </div>
       </div>
-      <div>
-        <div class="text-xs text-ink-subtle dark:text-ink-dark-muted mb-1 no-print">পৃষ্ঠা ১</div>
-        <div class="a4-page-wrap"><div class="a4-page shadow border border-edge-light dark:border-edge-dark rounded-lg" id="page1"></div></div>
-      </div>
-      <div id="page2-wrapper" class="hidden">
-        <div class="text-xs text-ink-subtle dark:text-ink-dark-muted mb-1 no-print">পৃষ্ঠা ২</div>
-        <div class="a4-page-wrap"><div class="a4-page shadow border border-edge-light dark:border-edge-dark rounded-lg" id="page2"></div></div>
+      <div id="previewScrollArea">
+        <div>
+          <div class="text-xs text-ink-subtle dark:text-ink-dark-muted mb-1 no-print">পৃষ্ঠা ১</div>
+          <div class="a4-page-wrap"><div class="a4-page shadow border border-edge-light dark:border-edge-dark rounded-lg" id="page1"></div></div>
+        </div>
+        <div id="page2-wrapper" class="hidden">
+          <div class="text-xs text-ink-subtle dark:text-ink-dark-muted mb-1 no-print">পৃষ্ঠা ২</div>
+          <div class="a4-page-wrap"><div class="a4-page shadow border border-edge-light dark:border-edge-dark rounded-lg" id="page2"></div></div>
+        </div>
       </div>
     </div>
 
@@ -278,7 +299,7 @@ tailwind.config = {
         <canvas id="imgEditorCanvas"></canvas>
         <div id="cropOverlay"></div>
       </div>
-      <p class="text-[11px] text-ink-subtle mt-2 text-center">ছবিতে ড্র্যাগ করে ক্রপ করুন</p>
+      <p class="text-[11px] text-ink-subtle mt-2 text-center">ছবিতে ড্র্যাগ করে ক্রপ · কর্নার/এজ টেনে রিসাইজ · ভেতরে টেনে মুভ</p>
     </div>
     <div class="p-3 space-y-3 border-t border-edge-light dark:border-edge-dark">
       <div class="flex flex-wrap gap-1">
@@ -347,6 +368,10 @@ tailwind.config = {
       </div>
     </div>
   </div>
+</div>
+
+<div id="mathPaletteModal" class="hidden fixed z-50 bg-surface-light dark:bg-surface-dark border border-edge-light dark:border-edge-dark rounded-lg shadow-xl p-2 no-print" style="max-width: 320px;">
+  <div id="mathPaletteContent" class="grid grid-cols-8 gap-1"></div>
 </div>
 
 <div id="exportLoading" class="hidden fixed inset-0 bg-black/50 z-[100] flex items-center justify-center no-print">
