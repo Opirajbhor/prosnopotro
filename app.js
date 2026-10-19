@@ -17,12 +17,20 @@ function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
 const DEFAULT_CREATIVE_INSTR = '[বি:দ্র: সংক্ষিপ্ত অংশ হতে যেকোনো ১০টি এবং সৃজনশীল অংশ হতে যেকোনো ০৫ টি প্রশ্নের উত্তর দাও।]';
 const DEFAULT_MCQ_INSTR = '[দ্রষ্টব্য: সরবারহকৃত বহুনির্বাচনি অভিক্ষার উত্তরপত্রে প্রশ্নের ক্রমিক নম্বরের বিপরীতে প্রদত্ত বর্ণসংবলিত বৃত্তসমূহ হতে সঠিক/সর্বোৎকৃষ্ট উত্তরের বৃত্তটি বল পয়েন্ট কলম দ্বারা সম্পূর্ণ ভরাট কর। প্রতিটি প্রশ্নের মান ১।]';
 const MODE_TIME = { creative: '২ ঘন্টা ৩০ মিনিট', mcq: '৩০ মিনিট' };
+const MODE_FULLMARK = { creative: '৭০', mcq: '৩০' };
 const CACHE_KEY = 'qp_cache_v1';
 const PRESET_KEY = 'qp_presets_v1';
 const CACHE_FIELDS = ['school','exam','class','subject','subjectCode','time','fullmark','fontSize','fontFamily','encoding','instructions','pasteSmall','pasteMain','pasteMcq'];
 const DIV_MARKER = '\u2063';
 const MAX_SECTIONS = 5;
 const MAX_IMAGES_PER_ROW = 3;
+/* image widths are a % of the question block; the value is per image key, kept in qp_img_size */
+const IMG_SIZE_KEY = 'qp_img_size';
+const IMG_PCT_MIN = 15;
+const IMG_PCT_MAX = 100;
+const IMG_PCT_STEP = 5;
+/* fallback width by how many pictures share one row (1 = alone, 3 = MAX_IMAGES_PER_ROW) */
+const DEFAULT_IMG_PCT = { 1: 45, 2: 38, 3: 30 };
 const SECTION_LABELS_BN = ['ক','খ','গ','ঘ','ঙ'];
 const SECTION_LABELS_EN = ['K','L','M','N','O'];
 const MARKER_RE = /^\s*[\(\[\{]?\s*([কখগঘঙKLMNO])\s*[\)\]\}\।\.\|\:\,\-]\s*(.*)$/;
@@ -30,8 +38,13 @@ const NUMPREFIX_RE = /^[০-৯0-9]+\s*[।\.\|\:\-\)]\s*/;
 const SHORT_MARKS = { 'ক':1,'K':1,'খ':1,'L':1,'গ':1,'M':1,'ঘ':1,'N':1,'ঙ':1,'O':1 };
 const CREATIVE_MARKS = { 'ক':1,'K':1,'খ':2,'L':2,'গ':3,'M':3,'ঘ':4,'N':4,'ঙ':5,'O':5 };
 const OPTION_RE = /^\s*[\(\[\{]?\s*([কখগঘঙKLMNO])\s*[\)\]\}\।\.\|\:\,\-\/\;\?]\s*(.+)$/;
+/* "ক অপশন" — letter parted from its text by whitespace only (typographic Bangla/Bijoy MCQ style) */
+const OPTION_SP_RE = /^\s*([কখগঘঙKLMNO])[ \t\u00A0]+(\S.*)$/;
 const MCQ_QNUM_RE = /^\s*[০-৯0-9]+\s*[।\.\)\|\:\-]\s*(.+)$/;
-const OPTION_SPLIT_RE = /\s+(?=[\(\[\{]?[কখগঘঙKLMNO][\)\]\}\।\.\|\:\,\-\/\;\?]\s)/g;
+const OPTION_SPLIT_RE = /[ \t\u00A0]+(?=[\(\[\{]?[কখগঘঙKLMNO](?:[\)\]\}][ \t]?|[\।\.\|\:\,\-\/\;\?\u0983][ \t]))/g;
+/* same split, but also for space-separated letters; only applied when a line carries 2+ such markers */
+const LOOSE_SPLIT_RE = /[ \t\u00A0]+(?=[\(\[\{]?[কখগঘঙKLMNO][ \t\u00A0])/g;
+const LOOSE_MARK_RE = /[ \t\u00A0](?=[\(\[\{]?[কখগঘঙKLMNO][ \t\u00A0])/g;
 
 const isKa = ch => ch === 'ক' || ch === 'K';
 function isBijoy() { const el = $('encoding'); return el && el.value === 'bijoy'; }
@@ -43,14 +56,157 @@ let hasSpellRun = false;
 const duplicateQuestions = new Set();
 let previewZoom = parseFloat(localStorage.getItem('qp_zoom')) || 1;
 
+/* ==================== UI SETTINGS (theme / font / scale / accent) ==================== */
+const UI_SETTINGS_KEY = 'qp_ui_v1';
+const DEFAULT_ACCENT = '#115e59';
+/* Every stack keeps a Bengali fallback that is already loaded (Nikosh / Kalpurush). */
+const UI_FONT_STACKS = {
+  'Nikosh': "'Nikosh', 'Kalpurush', system-ui, sans-serif",
+  'Kalpurush': "'Kalpurush', 'Nikosh', system-ui, sans-serif",
+  'SolaimanLipi': "'SolaimanLipi', 'Nikosh', 'Kalpurush', system-ui, sans-serif",
+  'Siyam Rupali': "'Siyam Rupali', 'Nikosh', 'Kalpurush', system-ui, sans-serif",
+  'Mukti': "'Mukti', 'Nikosh', 'Kalpurush', system-ui, sans-serif",
+  'Noto Serif Bengali': "'Noto Serif Bengali', 'Nikosh', serif",
+  'Tiro Bangla': "'Tiro Bangla', 'Noto Serif Bengali', 'Nikosh', serif",
+  'Baloo Da 2': "'Baloo Da 2', 'Nikosh', 'Kalpurush', system-ui, sans-serif",
+  'System': "system-ui, 'Segoe UI', 'Nirmala UI', sans-serif"
+};
+/* Used verbatim for the default accent, so the shipped look stays pixel-identical. */
+const DEFAULT_BRAND_RGB = { 50:'238 246 245', 100:'213 229 227', 200:'169 203 200', 500:'43 114 109', 600:'17 94 89', 700:'12 74 71' };
+const DEFAULT_UI_SETTINGS = { theme: 'light', font: 'Nikosh', scale: 1, accent: DEFAULT_ACCENT };
+let uiSettings = Object.assign({}, DEFAULT_UI_SETTINGS);
+
+function loadUiSettings() {
+  let stored = {};
+  try { stored = JSON.parse(localStorage.getItem(UI_SETTINGS_KEY) || '{}') || {}; } catch (e) { stored = {}; }
+  uiSettings = Object.assign({}, DEFAULT_UI_SETTINGS, stored);
+  uiSettings.scale = Math.min(1.4, Math.max(0.85, parseFloat(uiSettings.scale) || 1));
+  if (!UI_FONT_STACKS[uiSettings.font]) uiSettings.font = DEFAULT_UI_SETTINGS.font;
+  if (!/^#[0-9a-fA-F]{6}$/.test(uiSettings.accent)) uiSettings.accent = DEFAULT_ACCENT;
+  uiSettings.accent = uiSettings.accent.toLowerCase();
+  /* one-time migration from the old standalone qp_dark flag */
+  if (stored.theme === undefined && localStorage.getItem('qp_dark') === '1') uiSettings.theme = 'dark';
+  if (['light', 'dark', 'system'].indexOf(uiSettings.theme) < 0) uiSettings.theme = 'light';
+  return uiSettings;
+}
+function saveUiSettings() {
+  try { localStorage.setItem(UI_SETTINGS_KEY, JSON.stringify(uiSettings)); } catch (e) {}
+  try { localStorage.setItem('qp_dark', resolveTheme() === 'dark' ? '1' : '0'); } catch (e) {}
+}
+function preferDark() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+function resolveTheme() {
+  if (uiSettings.theme === 'system') return preferDark() ? 'dark' : 'light';
+  return uiSettings.theme === 'dark' ? 'dark' : 'light';
+}
+/* hex -> hsl, so any user colour can be expanded into the brand-50 … brand-700 scale */
+function hexToHsl(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b), d = max - min;
+  let h = 0;
+  if (d) {
+    if (max === r) h = ((g - b) / d) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else h = (r - g) / d + 4;
+    h *= 60; if (h < 0) h += 360;
+  }
+  const l = (max + min) / 2;
+  const s = d ? d / (1 - Math.abs(2 * l - 1)) : 0;
+  return { h: h, s: s * 100, l: l * 100 };
+}
+function hslToRgb(h, s, l) {
+  s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+  return Math.round((r + m) * 255) + ' ' + Math.round((g + m) * 255) + ' ' + Math.round((b + m) * 255);
+}
+function brandPalette(hex) {
+  if (hex.toLowerCase() === DEFAULT_ACCENT) return DEFAULT_BRAND_RGB;
+  const c = hexToHsl(hex);
+  return {
+    50: hslToRgb(c.h, c.s * 0.10, 95),
+    100: hslToRgb(c.h, c.s * 0.18, 87),
+    200: hslToRgb(c.h, c.s * 0.35, 73),
+    500: hslToRgb(c.h, c.s * 0.65, Math.min(90, c.l + 9)),
+    600: hslToRgb(c.h, c.s, c.l),
+    700: hslToRgb(c.h, Math.min(100, c.s * 1.05), Math.max(6, c.l - 5))
+  };
+}
+function applyUiSettings() {
+  const root = document.documentElement;
+  root.style.setProperty('--ui-font', UI_FONT_STACKS[uiSettings.font] || UI_FONT_STACKS['Nikosh']);
+  root.style.setProperty('--ui-scale', String(uiSettings.scale));
+  const pal = brandPalette(uiSettings.accent);
+  Object.keys(pal).forEach(k => root.style.setProperty('--brand-' + k, pal[k]));
+  applyDark();
+}
+function setUiTheme(theme) {
+  if (['light', 'dark', 'system'].indexOf(theme) < 0) return;
+  uiSettings.theme = theme;
+  saveUiSettings(); applyDark(); syncSettingsUI();
+}
+function setUiFont(font) {
+  if (!UI_FONT_STACKS[font]) return;
+  uiSettings.font = font;
+  saveUiSettings(); applyUiSettings(); syncSettingsUI();
+}
+function setUiScale(v) {
+  const n = parseFloat(v);
+  if (isNaN(n)) return;
+  uiSettings.scale = Math.min(1.4, Math.max(0.85, Math.round(n * 100) / 100));
+  saveUiSettings(); applyUiSettings(); syncSettingsUI();
+}
+function setUiAccent(hex) {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return;
+  uiSettings.accent = hex.toLowerCase();
+  saveUiSettings(); applyUiSettings(); syncSettingsUI();
+}
+function resetUiSettings() {
+  uiSettings = Object.assign({}, DEFAULT_UI_SETTINGS);
+  saveUiSettings(); applyUiSettings(); syncSettingsUI();
+  showToast('সেটিংস ডিফল্টে ফেরানো হয়েছে ✓');
+}
+function syncSettingsUI() {
+  const modal = $('settingsModal'); if (!modal) return;
+  modal.querySelectorAll('[data-theme]').forEach(b => b.classList.toggle('active', b.dataset.theme === uiSettings.theme));
+  modal.querySelectorAll('[data-accent]').forEach(b => b.classList.toggle('active', b.dataset.accent.toLowerCase() === uiSettings.accent));
+  const sel = $('uiFontSelect'); if (sel) sel.value = uiSettings.font;
+  const range = $('uiScaleRange');
+  if (range) {
+    range.value = uiSettings.scale;
+    const out = $('uiScaleVal');
+    if (out) out.textContent = en2bn(Math.round(uiSettings.scale * 100)) + '%';
+  }
+  const custom = $('uiAccentCustom'); if (custom) custom.value = uiSettings.accent;
+  const hexOut = $('uiAccentVal'); if (hexOut) hexOut.textContent = uiSettings.accent;
+}
+function openSettings() { syncSettingsUI(); $('settingsModal').classList.remove('hidden'); }
+function closeSettings() { $('settingsModal').classList.add('hidden'); }
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSettings(); });
+/* follow the OS when the user picked “সিস্টেম” */
+if (window.matchMedia) {
+  const mq = window.matchMedia('(prefers-color-scheme: dark)');
+  const onSchemeChange = () => { if (uiSettings.theme === 'system') applyDark(); };
+  if (mq.addEventListener) mq.addEventListener('change', onSchemeChange);
+  else if (mq.addListener) mq.addListener(onSchemeChange);
+}
+
 /* ==================== DARK ==================== */
 function applyDark() {
-  document.documentElement.classList.toggle('dark', localStorage.getItem('qp_dark') === '1');
+  document.documentElement.classList.toggle('dark', resolveTheme() === 'dark');
 }
 function toggleDark() {
-  const next = localStorage.getItem('qp_dark') !== '1';
-  localStorage.setItem('qp_dark', next ? '1' : '0');
-  applyDark();
+  setUiTheme(resolveTheme() === 'dark' ? 'light' : 'dark');
 }
 
 /* ==================== ZOOM ==================== */
@@ -171,7 +327,7 @@ async function ensureJsPdf() {
 }
 async function ensureFontsLoaded() {
   if (!document.fonts) return;
-  const families = ['Nikosh', 'Kalpurush', 'SutonnyMJ'];
+  const families = ['Nikosh', 'Kalpurush', 'SutonnyMJ', 'BanglaOMR'];
   const proms = [];
   for (const fam of families) {
     proms.push(document.fonts.load('12px "' + fam + '"').catch(() => {}));
@@ -291,6 +447,68 @@ function imgTag(key) {
   return '<img class="paper-img" src="' + src + '" alt="ছবি" data-imgkey="' + key + '" onclick="openImgEditor(\'' + key + '\', event)">';
 }
 
+/* ---- per-image width (the preview resize grips) ---------------------------------------------- */
+const imgSizes = {};
+function clampImgPct(p) { return Math.max(IMG_PCT_MIN, Math.min(IMG_PCT_MAX, Math.round(p))); }
+function imgPctFor(key, count) {
+  const v = imgSizes[key];
+  if (typeof v === 'number' && v >= IMG_PCT_MIN && v <= IMG_PCT_MAX) return v;
+  return DEFAULT_IMG_PCT[count] || DEFAULT_IMG_PCT[1];
+}
+function loadImgSizes() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(IMG_SIZE_KEY) || '{}');
+    Object.keys(saved).forEach(k => { if (typeof saved[k] === 'number') imgSizes[k] = clampImgPct(saved[k]); });
+  } catch (e) {}
+}
+function imgKeyInUse(key) {
+  if (imageCache.has(key)) return true;
+  return ['pasteSmall', 'pasteMain', 'pasteMcq'].some(id => {
+    const el = $(id);
+    return el && el.value.indexOf('[img:' + key + ']') !== -1;
+  });
+}
+function saveImgSizes() {
+  try {
+    const live = {};
+    Object.keys(imgSizes).forEach(k => { if (imgKeyInUse(k)) live[k] = imgSizes[k]; });
+    if (Object.keys(live).length) localStorage.setItem(IMG_SIZE_KEY, JSON.stringify(live));
+    else localStorage.removeItem(IMG_SIZE_KEY);
+  } catch (e) {}
+}
+function setImgSize(key, pct) {
+  if (!key) return;
+  const next = clampImgPct(pct);
+  if (imgSizes[key] === next) return;
+  imgSizes[key] = next;
+  saveImgSizes();
+  render();
+}
+function nudgeImgSize(key, delta) {
+  const fig = document.querySelector('.img-figure[data-imgkey="' + key + '"]');
+  const cur = parseFloat(fig ? fig.dataset.imgpct : imgSizes[key]);
+  if (isNaN(cur)) return;
+  setImgSize(key, cur + delta);
+}
+function imgSizeControlsHtml(key, pct) {
+  return '<span class="img-size-bar" title="ছবির আকার">' +
+    '<button type="button" class="img-size-btn" data-imgkey="' + key + '" data-step="-' + IMG_PCT_STEP + '" title="ছবি ছোট করুন" aria-label="ছবি ছোট করুন">' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M5 12h14"></path></svg></button>' +
+    '<span class="img-size-val">' + num(pct) + '%</span>' +
+    '<button type="button" class="img-size-btn" data-imgkey="' + key + '" data-step="' + IMG_PCT_STEP + '" title="ছবি বড় করুন" aria-label="ছবি বড় করুন">' +
+    '<svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><path d="M12 5v14"></path><path d="M5 12h14"></path></svg></button>' +
+    '</span>';
+}
+function imgFigureHtml(key, count, interactive) {
+  const pct = imgPctFor(key, count);
+  return '<div class="img-figure" data-imgkey="' + key + '" data-imgpct="' + pct + '" style="width:' + pct + '%;max-width:' + pct + '%;">' +
+    imgTag(key) + '<div class="img-caption"></div>' +
+    (interactive
+      ? imgSizeControlsHtml(key, pct) + '<span class="img-resize" data-imgkey="' + key + '" title="টেনে ছবির আকার বদলান"><svg xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M13 5h6v6"></path><path d="M11 19H5v-6"></path><path d="M19 5 5 19"></path></svg></span>'
+      : '') +
+    '</div>';
+}
+
 /* Wrap misspelled words with .spell-error */
 function highlightSpellErrors(htmlStr) {
   if (!hasSpellRun || misspelledSet.size === 0) return htmlStr;
@@ -333,26 +551,22 @@ function escWithImgs(s, targetId) {
   if (!parts.length) parts.push({ type: 'text', content: str });
   let html = '';
   for (const part of parts) {
-    if (part.type === 'table') html += renderTableHtml(part.content, targetId || '', part.idx);
-    else html += renderTextWithImgs(part.content);
+    if (part.type === 'table') html += renderTableHtml(part.content, targetId || '', part.idx, !!targetId);
+    else html += renderTextWithImgs(part.content, !!targetId);
   }
   return html;
 }
-function renderTextWithImgs(text) {
+function renderTextWithImgs(text, interactive) {
   const parts = String(text).split(/(\[img:[a-zA-Z0-9_]+\])/);
   let html = '';
   let pending = [];
   function flush() {
     if (!pending.length) return;
-    const n = pending.length;
-    const widthPct = n === 1 ? '65' : (n === 2 ? '48' : '32');
-    if (n === 1) {
-      html += '<div class="img-figure" style="display:block;max-width:' + widthPct + '%;margin:4px auto;">' + imgTag(pending[0]) + '<div class="img-caption"></div></div>';
+    if (pending.length === 1) {
+      html += imgFigureHtml(pending[0], 1, interactive);
     } else {
-      html += '<div class="img-row" style="display:flex;gap:10px;justify-content:center;align-items:flex-start;margin:6px 0;">';
-      pending.forEach(k => {
-        html += '<div class="img-figure" style="flex:0 0 ' + widthPct + '%;max-width:' + widthPct + '%;display:flex;flex-direction:column;align-items:center;">' + imgTag(k) + '<div class="img-caption"></div></div>';
-      });
+      html += '<div class="img-row">';
+      pending.forEach(k => { html += imgFigureHtml(k, pending.length, interactive); });
       html += '</div>';
     }
     pending = [];
@@ -371,18 +585,79 @@ function renderTextWithImgs(text) {
   flush();
   return html;
 }
+/* ---- preview resize: drag the corner grip, or step with the − / + buttons -------------------- */
+let imgResizeState = null;
+function imgPctFromDrag(startPct, dxPx, refWidthPx) {
+  if (!refWidthPx) return startPct;
+  return clampImgPct(startPct + dxPx / refWidthPx * 100);
+}
+function applyImgPctToFigure(fig, pct) {
+  fig.dataset.imgpct = pct;
+  fig.style.width = pct + '%';
+  fig.style.maxWidth = pct + '%';
+  const val = fig.querySelector('.img-size-val');
+  if (val) val.textContent = num(pct) + '%';
+}
+function startImgResize(e) {
+  const grip = e.target.closest('.img-resize');
+  if (!grip) return;
+  const fig = grip.closest('.img-figure');
+  const parent = fig && fig.parentElement;
+  if (!fig || !parent) return;
+  e.preventDefault();
+  e.stopPropagation();
+  imgResizeState = {
+    key: fig.dataset.imgkey,
+    fig,
+    startX: e.clientX,
+    startPct: parseFloat(fig.dataset.imgpct) || IMG_PCT_MAX,
+    /* the parent is the .img-row or the question block; its rendered width already includes the
+       preview zoom, so dragging stays 1:1 whatever the zoom level is */
+    refWidth: parent.getBoundingClientRect().width,
+    pct: null
+  };
+  document.body.classList.add('img-resizing');
+}
+function moveImgResize(e) {
+  if (!imgResizeState) return;
+  e.preventDefault();
+  const st = imgResizeState;
+  st.pct = imgPctFromDrag(st.startPct, e.clientX - st.startX, st.refWidth);
+  applyImgPctToFigure(st.fig, st.pct);
+}
+function endImgResize() {
+  if (!imgResizeState) return;
+  const st = imgResizeState;
+  imgResizeState = null;
+  document.body.classList.remove('img-resizing');
+  /* nothing moved → the grip was just clicked, keep the stored size */
+  if (st.pct !== null) setImgSize(st.key, st.pct);
+}
+function handleImgSizeClick(e) {
+  const btn = e.target.closest('.img-size-btn');
+  if (!btn) return;
+  e.preventDefault();
+  e.stopPropagation();
+  nudgeImgSize(btn.dataset.imgkey, parseInt(btn.dataset.step, 10) || 0);
+}
+function initImgSizeListeners() {
+  document.addEventListener('pointermove', moveImgResize, { passive: false });
+  document.addEventListener('pointerup', endImgResize);
+  document.addEventListener('pointercancel', endImgResize);
+}
 function parseTableBlock(blockText) {
   const lines = blockText.split('\n').map(l => l.trim()).filter(Boolean);
   if (!lines.length) return [];
   return lines.map(l => l.split('|').map(c => c.trim()));
 }
-function renderTableHtml(blockText, targetId, blockIdx) {
+function renderTableHtml(blockText, targetId, blockIdx, interactive) {
   const rows = parseTableBlock(blockText);
   if (!rows.length) return '';
   const headerRow = rows[0];
   const bodyRows = rows.slice(1);
-  let html = '<div class="table-wrapper" data-target="' + targetId + '" data-idx="' + blockIdx + '" onclick="openTableEditor(\'' + targetId + '\', ' + blockIdx + ', event)">';
-  html += '<button class="table-remove" onclick="removeTable(\'' + targetId + '\', ' + blockIdx + ', event)" title="মুছুন">✕</button>';
+  let html = '<div class="table-wrapper" data-target="' + targetId + '" data-idx="' + blockIdx + '"' +
+    (interactive ? ' onclick="openTableEditor(\'' + targetId + '\', ' + blockIdx + ', event)"' : '') + '>';
+  if (interactive) html += '<button class="table-remove" onclick="removeTable(\'' + targetId + '\', ' + blockIdx + ', event)" title="মুছুন">✕</button>';
   html += '<table class="qp-table"><thead><tr>';
   headerRow.forEach(c => { html += '<th>' + renderInlineText(c) + '</th>'; });
   html += '</tr></thead><tbody>';
@@ -947,6 +1222,8 @@ function removeImageFromPaper() {
   });
   imageCache.delete(key);
   idbDelete(key);
+  delete imgSizes[key];
+  saveImgSizes();
   closeImgEditor();
   render(); scheduleCache();
   showToast('ছবি মুছে ফেলা হয়েছে ✓');
@@ -1215,6 +1492,14 @@ function setMode(m) {
     ta.value = m === 'mcq' ? DEFAULT_MCQ_INSTR : DEFAULT_CREATIVE_INSTR;
   }
   $('time').value = MODE_TIME[m] || MODE_TIME.creative;
+  const fmEl = $('fullmark');
+  if (fmEl) {
+    const fmCur = fmEl.value.trim();
+    /* follow the mode default only while the user has not picked another mark */
+    if (fmCur === '' || fmCur === MODE_FULLMARK.creative || fmCur === MODE_FULLMARK.mcq) {
+      fmEl.value = MODE_FULLMARK[m] || MODE_FULLMARK.creative;
+    }
+  }
   applyMode(); render(); scheduleCache();
 }
 function applyMode() {
@@ -1260,7 +1545,7 @@ function autoFillCode() {
 /* ==================== HELPERS ==================== */
 function getShortHeading()  { return isBijoy() ? 'msÿwc&Z Ask' : 'সংক্ষিপ্ত অংশ'; }
 function getCreativeHeading(){ return isBijoy() ? 'm…Rbkxj Ask' : 'সৃজনশীল অংশ'; }
-function getMcqHeading()    { return isBijoy() ? '†bqwe©ËK Ask' : 'নৈর্ব্যত্তিক অংশ'; }
+function getMcqHeading()    { return isBijoy() ? '‰be©¨wËK Ask' : 'নৈর্ব্যত্তিক অংশ'; }
 function omrLetter(idx) {
   if (isBijoy()) return ['K','L','M','N','O'][idx] || '?';
   return ['ক','খ','গ','ঘ','ঙ'][idx] || '?';
@@ -1311,36 +1596,125 @@ function parseCreative(raw) {
   }
   return { groups, dividerAtGap };
 }
+/* Letter-less MCQ options (task-5): users should not have to type ক/খ/গ/ঘ in front of every value. */
+function bareOptionColumns(line) {
+  const hasTab = line.indexOf('\t') !== -1;
+  if (!hasTab && !/[ \u00A0]{2,}/.test(line)) return null;
+  const cols = line.split(/\t+|[ \u00A0]{2,}/).map(s => s.trim()).filter(Boolean);
+  if (cols.length < 2 || cols.length > 5) return null;
+  if (!hasTab && cols.length < 3) return null;   /* space-separated needs 3+ values to stay safe */
+  if (cols.some(c => !c || c.length > 40 || /[?।]$/.test(c) || /^[০-৯0-9]+\s*[।\.\)]/.test(c))) return null;
+  return cols;
+}
+function bareOptionText(line) {
+  const t = String(line).trim();
+  if (!t || t.length > 40) return null;
+  if (/[?।:;]$/.test(t) || /[\[\]]/.test(t) || /^\*/.test(t)) return null;
+  return t;
+}
+/* count short value-looking lines starting at li — a single hard-wrapped line must not count */
+function bareOptionRun(lines, li) {
+  let n = 0;
+  for (let k = li; k < lines.length && n < 4; k++) {
+    const t = lines[k].trim();
+    if (!t) continue;
+    if (bareOptionText(t) === null) break;
+    if (OPTION_RE.test(t) || MCQ_QNUM_RE.test(t)) break;
+    n++;
+  }
+  return n;
+}
 function parseMcq(raw) {
   const text = String(raw).replace(/\r\n?/g, '\n').replace(/[\u2028\u2029]/g, '\n').replace(/[\u200B-\u200D\uFEFF]/g, '');
   const originalLines = text.split('\n');
-  const lines = [], lineIdxMap = [];
+  const lines = [], lineIdxMap = [], looseSplit = [];
+  const mediaBefore = new Map();   /* origIdx of the first content line -> media sitting above it */
+  let pendingMedia = [];
+  let inTable = false, openIdx = -1, tableBuf = [];
+  const lineOffsets = [];
+  { let off = 0; originalLines.forEach(l => { lineOffsets.push(off); off += l.length + 1; }); }
+  /* closed [table] … [/table] ranges, in document order — same order/count as openTableEditor() */
+  const tableRanges = [...text.matchAll(/\[table\]([\s\S]*?)\[\/table\]/g)].map(m => ({ start: m.index, end: m.index + m[0].length }));
+  const ownTable = origIdx => tableRanges.find(r => r.start >= lineOffsets[origIdx] && r.start < lineOffsets[origIdx] + originalLines[origIdx].length + 1);
   originalLines.forEach((l, origIdx) => {
-    const parts = l.split(OPTION_SPLIT_RE);
-    parts.forEach(p => { lines.push(p); lineIdxMap.push(origIdx); });
+    const tidy = l.trim();
+    /* a [table] … [/table] block spanning lines is media, never question text */
+    if (inTable) {
+      tableBuf.push(l);
+      if (tidy.indexOf('[/table]') !== -1) {
+        inTable = false;
+        const rawBlock = tableBuf.join('\n');
+        const mt = ownTable(openIdx);
+        pendingMedia.push({
+          type: 'table', raw: rawBlock, idx: mt ? tableRanges.indexOf(mt) : 0,
+          content: rawBlock.replace(/^[\s\S]*?\[table\]/, '').replace(/\[\/table\][\s\S]*$/, '').trim()
+        });
+        tableBuf = [];
+      }
+      return;
+    }
+    const own = ownTable(origIdx);
+    /* only a block that closes on a later line becomes media — a broken [table] stays plain text */
+    if (tidy.indexOf('[table]') === 0 && own && own.end > lineOffsets[origIdx] + l.length) {
+      inTable = true; openIdx = origIdx; tableBuf = [l]; return;
+    }
+    /* a standalone [img:key] line is media for the question below it */
+    if (/^\[img:[a-zA-Z0-9_]+\]$/.test(tidy)) { pendingMedia.push({ type: 'img', raw: tidy }); return; }
+    /* media gathered above belongs to the question that starts here */
+    if (pendingMedia.length) mediaBefore.set(origIdx, pendingMedia.splice(0));
+    let parts = l.split(OPTION_SPLIT_RE);
+    let loose = false;
+    if (parts.length === 1 && (l.match(LOOSE_MARK_RE) || []).length >= 2) {
+      parts = l.split(LOOSE_SPLIT_RE);
+      loose = true;
+    }
+    /* an indented line is an option line, so a bare "ক অপশন" (no punctuation) is accepted there too */
+    if (/^[ \t\u00A0]/.test(l)) loose = true;
+    parts.forEach(p => { lines.push(p); lineIdxMap.push(origIdx); looseSplit.push(loose); });
   });
   const questions = [];
   let current = null;
+  const openQuestion = (question, startLine) => {
+    const media = mediaBefore.get(startLine) || [];
+    mediaBefore.delete(startLine);
+    current = { question, options: [], startLine, media, mediaAfter: [] };
+    questions.push(current);
+  };
   for (let li = 0; li < lines.length; li++) {
     const line = lines[li].trim();
     if (!line) continue;
     const startLine = lineIdxMap[li];
-    const om = line.match(OPTION_RE);
+    const om = line.match(OPTION_RE) || (looseSplit[li] ? line.match(OPTION_SP_RE) : null);
     if (om) {
       const idx = optionIndex(om[1]);
       const optText = om[2].trim();
-      if (!current) { current = { question: optText, options: [], startLine }; questions.push(current); continue; }
+      if (!current) { openQuestion(optText, startLine); continue; }
       if (current.options.length < 4) current.options.push({ idx, text: optText });
-      else { current = { question: optText, options: [], startLine }; questions.push(current); }
+      else openQuestion(optText, startLine);
       continue;
     }
     const qm = line.match(MCQ_QNUM_RE);
-    if (qm) { current = { question: qm[1].trim(), options: [], startLine }; questions.push(current); continue; }
-    if (!current) { current = { question: line, options: [], startLine }; questions.push(current); }
+    /* letter-less options: “ঢাকা   চট্টগ্রাম   খুলনা” columns, or one short value per line */
+    if (!qm && current && current.options.length < 4) {
+      const cols = bareOptionColumns(line);
+      if (cols) { cols.forEach(c => current.options.push({ idx: current.options.length, text: c })); current.bareRun = true; continue; }
+      const bare = bareOptionText(line);
+      if (bare && (current.bareRun || (/[?।\|:\.]\s*$/.test(current.question.trim()) ? 2 : 3) <= bareOptionRun(lines, li))) {
+        current.options.push({ idx: current.options.length, text: bare });
+        current.bareRun = true;
+        continue;
+      }
+    }
+    if (qm) { openQuestion(qm[1].trim(), startLine); continue; }
+    if (!current) openQuestion(line, startLine);
     else if (current.options.length === 0) current.question += ' ' + line;
-    else if (/[?।]\s*$/.test(line) || line.length > 45) { current = { question: line, options: [], startLine }; questions.push(current); }
+    else if (/[?।]\s*$/.test(line) || line.length > 45) openQuestion(line, startLine);
     else { const last = current.options[current.options.length - 1]; if (last) last.text += ' ' + line; }
   }
+  /* media that never found a question below it (or a stray one) stays with the last question */
+  const leftover = pendingMedia.splice(0);
+  mediaBefore.forEach(items => leftover.push(...items));
+  if (leftover.length && questions.length) questions[questions.length - 1].mediaAfter = leftover;
   return questions.filter(q => q.question && q.options.length >= 2);
 }
 
@@ -1380,7 +1754,7 @@ function handlePreviewClick(e) {
     $('imgPicker').click(); return;
   }
   const block = e.target.closest('.question-clickable');
-  if (block && !e.target.closest('.paper-img') && !e.target.closest('.qp-table')) {
+  if (block && !e.target.closest('.img-figure') && !e.target.closest('.qp-table')) {
     e.preventDefault();
     scrollTextareaToText(block.dataset.src, block.dataset.find || '');
   }
@@ -1432,13 +1806,21 @@ function creativeGroupHtml(g, numLabel, isDup) {
   h += '</div></div>';
   return h;
 }
+function mcqMediaHtml(item) {
+  /* tables keep their global index so preview edit/remove still target the right block */
+  if (item.type === 'table') return renderTableHtml(item.content, 'pasteMcq', item.idx, true);
+  /* mcqHtml() only ever builds the preview, so MCQ media keeps its resize grips */
+  return renderTextWithImgs(item.raw, true);
+}
 function mcqHtml(q, n, isDup) {
   const dupCls = isDup ? ' is-duplicate' : '';
+  const media = key => (q[key] || []).map(m => '<div class="mcq-media">' + mcqMediaHtml(m) + '</div>').join('');
   return '<div class="mcq question-clickable' + dupCls + '" data-src="pasteMcq" data-find="' + esc(q.question) + '">' +
+    media('media') +
     '<div class="mcq-q"><span class="mcq-num">' + esc(num(n) + '.') + '</span><span class="mcq-text">' + escWithImgs(q.question, 'pasteMcq') + '</span></div>' +
     '<div class="mcq-opts">' +
-    q.options.map(opt => '<span class="mcq-opt"><b>(' + esc(omrLetter(opt.idx)) + ')</b>' + escWithImgs(opt.text, 'pasteMcq') + '</span>').join('') +
-    '</div></div>';
+    q.options.map(opt => '<span class="mcq-opt"><b class="omr-letter">' + esc(omrLetter(opt.idx)) + '</b>' + escWithImgs(opt.text, 'pasteMcq') + '</span>').join('') +
+    '</div>' + media('mediaAfter') + '</div>';
 }
 function codeTableHtml(code) {
   if (!code) return '';
@@ -1678,7 +2060,7 @@ function updatePreviewScale() { applyZoom(); }
 
 /* ==================== STATE ==================== */
 function collectState() {
-  const state = { v: 1, mode: MODE, qr: qrEnabled, zoom: previewZoom, images: [...imageCache.entries()] };
+  const state = { v: 1, mode: MODE, qr: qrEnabled, zoom: previewZoom, images: [...imageCache.entries()], imgSizes: { ...imgSizes } };
   CACHE_FIELDS.forEach(k => { state[k] = $(k).value; });
   return state;
 }
@@ -1696,6 +2078,11 @@ function restoreState(data) {
   }
   if (Array.isArray(data.images)) {
     for (const [k, v] of data.images) { imageCache.set(k, v); idbPut(k, v); }
+  }
+  /* optional (state v1 exports made before image resize existed simply keep the defaults) */
+  if (data.imgSizes && typeof data.imgSizes === 'object') {
+    Object.keys(data.imgSizes).forEach(k => { if (typeof data.imgSizes[k] === 'number') imgSizes[k] = clampImgPct(data.imgSizes[k]); });
+    saveImgSizes();
   }
   applyTextareaFont();
   render(); scheduleCache();
@@ -1808,6 +2195,7 @@ function exportDoc() {
     if (mcqs.length) {
       body += P('text-align:center;font-weight:bold;margin:12pt 0 6pt;', esc(getMcqHeading()));
       mcqs.forEach((q, i) => {
+        (q.media || []).forEach(m => { body += '<div style="text-align:center;margin:4pt 0;">' + escWithImgs(m.raw) + '</div>'; });
         body += '<table style="width:100%;margin-top:4pt;" cellpadding="0" cellspacing="0"><tr>' +
           '<td style="width:24pt;vertical-align:top;font-weight:bold;">' + esc(num(i + 1) + '.') + '</td>' +
           '<td style="vertical-align:top;">' + escWithImgs(q.question) + '</td></tr></table>';
@@ -1816,12 +2204,13 @@ function exportDoc() {
           optsHtml += '<tr>';
           for (let j = 0; j < 2; j++) {
             const opt = q.options[k + j];
-            if (opt) optsHtml += '<td style="padding:0 8pt 2pt 0;vertical-align:top;width:50%;">(' + esc(omrLetter(opt.idx)) + ') ' + escWithImgs(opt.text) + '</td>';
+            if (opt) optsHtml += '<td style="padding:0 8pt 2pt 0;vertical-align:top;width:50%;"><span class="omr-letter">' + esc(omrLetter(opt.idx)) + '</span> ' + escWithImgs(opt.text) + '</td>';
             else optsHtml += '<td></td>';
           }
           optsHtml += '</tr>';
         }
         body += '<table style="width:100%;margin:0 0 6pt 24pt;" cellpadding="0" cellspacing="0">' + optsHtml + '</table>';
+        (q.mediaAfter || []).forEach(m => { body += '<div style="text-align:center;margin:4pt 0;">' + escWithImgs(m.raw) + '</div>'; });
       });
     }
   }
@@ -1835,12 +2224,14 @@ function exportDoc() {
     comment +
     '<!--[if gte mso 9]><xml><w:WordDocument><w:View>Print</w:View></w:WordDocument></xml><![endif]-->' +
     '<style>@page{size:A4;margin:1.5cm}body{font-family:' + fontName + ';font-size:' + fontSize + 'pt;line-height:1.35}' +
-    'img{max-width:65%;max-height:120pt;display:block;margin:4pt auto;}' +
-    '.img-row{display:flex;gap:12pt;justify-content:center;}' +
-    '.img-row img{max-width:48%;}' +
+    'img{display:block;max-width:100%;max-height:120pt;margin:4pt auto;}' +
+    '.img-figure{max-width:100%;}' +
+    '.img-figure img{max-width:100%;}' +
+    '.img-row{display:flex;flex-wrap:wrap;gap:12pt;justify-content:flex-start;}' +
     'table.qp-table{border-collapse:collapse;margin:6pt auto;}' +
     'table.qp-table td,table.qp-table th{border:1pt solid #000;padding:3pt 8pt;}' +
-    'table.qp-table th{background:#f0f0f0;font-weight:bold;text-align:center;}</style>' +
+    'table.qp-table th{background:#f0f0f0;font-weight:bold;text-align:center;}' +
+    '.omr-letter{font-family:\'BanglaOMR\',\'SutonnyMJ\',serif;}</style>' +
     '</head><body>' + body + '</body></html>';
   const blob = new Blob(['\ufeff', html], { type: 'application/msword' });
   downloadBlob(blob, 'prosnopotro-' + getSubjectFileBase() + '.doc');
@@ -1850,13 +2241,13 @@ function exportDoc() {
 function showExportLoading() { $('exportLoading').classList.remove('hidden'); }
 function hideExportLoading() { $('exportLoading').classList.add('hidden'); }
 function prepareForCapture() {
-  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove').forEach(el => {
+  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove, .img-resize, .img-size-bar').forEach(el => {
     el.dataset.prevDisplay = el.style.display;
     el.style.display = 'none';
   });
 }
 function restoreAfterCapture() {
-  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove').forEach(el => {
+  document.querySelectorAll('.insert-gap, .section-divider .delete-div, .table-wrapper .table-remove, .img-resize, .img-size-bar').forEach(el => {
     el.style.display = el.dataset.prevDisplay || '';
     delete el.dataset.prevDisplay;
   });
@@ -2013,9 +2404,11 @@ function copyAsText() {
     if (mcqs.length) {
       lines.push(getMcqHeading());
       mcqs.forEach((q, i) => {
+        (q.media || []).forEach(m => lines.push('   ' + strip(m.raw)));
         lines.push(num(i+1) + '. ' + strip(q.question));
-        const opts = q.options.map(o => '(' + omrLetter(o.idx) + ') ' + strip(o.text)).join('  ');
+        const opts = q.options.map(o => omrLetter(o.idx) + ' ' + strip(o.text)).join('  ');
         lines.push('   ' + opts);
+        (q.mediaAfter || []).forEach(m => lines.push('   ' + strip(m.raw)));
       });
     }
   }
@@ -2034,7 +2427,7 @@ function fallbackCopy(text) {
 function showToast(msg) {
   const el = document.createElement('div');
   el.textContent = msg;
-  el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#115e59;color:#fff;padding:10px 20px;border-radius:999px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-family:inherit';
+  el.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgb(var(--brand-600));color:#fff;padding:10px 20px;border-radius:999px;font-size:calc(21px * var(--ui-scale));font-weight:600;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.15);font-family:var(--ui-font)';
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1800);
 }
@@ -2181,7 +2574,9 @@ function migrateDivMarkers() {
 
 /* ==================== INIT ==================== */
 function init() {
-  applyDark();
+  loadUiSettings();
+  applyUiSettings();
+  loadImgSizes();
   populateSubjects();
   applyMode();
   updateQrBtn();
@@ -2192,6 +2587,7 @@ function init() {
     const sel = $('subject');
     const opt = sel.options[sel.selectedIndex];
     if (opt && opt.dataset.code) $('subjectCode').value = opt.dataset.code;
+    $('fullmark').value = MODE_FULLMARK[MODE] || MODE_FULLMARK.creative;
   } else if (!$('instructions').value.trim()) {
     $('instructions').value = MODE === 'mcq' ? DEFAULT_MCQ_INSTR : DEFAULT_CREATIVE_INSTR;
   }
@@ -2209,8 +2605,12 @@ function init() {
     });
   });
 
-  $('page1').addEventListener('click', handlePreviewClick);
-  $('page2').addEventListener('click', handlePreviewClick);
+  ['page1', 'page2'].forEach(id => {
+    $(id).addEventListener('click', handlePreviewClick);
+    $(id).addEventListener('click', handleImgSizeClick);
+    $(id).addEventListener('pointerdown', startImgResize);
+  });
+  initImgSizeListeners();
   window.addEventListener('resize', () => { applyZoom(); });
   initVoice();
   initImgEditorListeners();

@@ -5,10 +5,33 @@
   font-style: normal;
   font-display: swap;
 }
+@font-face {
+  font-family: 'BanglaOMR';
+  src: url('fonts/BanglaOMR.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ---- Themeable UI tokens (driven by সেটিংস → UI SETTINGS in app.js) --------------------------
+   --ui-font, --ui-scale and --brand-* are re-written as inline custom properties on <html> by
+   applyUiSettings(). The brand fallbacks below match the original palette exactly, and the printed
+   paper (#page1 / #page2) always carries its own inline font-family + font-size, so nothing here
+   can change the exported sheet. */
+:root {
+  --ui-font: 'Nikosh', 'Kalpurush', system-ui, sans-serif;
+  --ui-scale: 1;
+  --brand-50: 238 246 245;
+  --brand-100: 213 229 227;
+  --brand-200: 169 203 200;
+  --brand-500: 43 114 109;
+  --brand-600: 17 94 89;
+  --brand-700: 12 74 71;
+}
 
 html, body { background: #f7f5f0; }
 html.dark, html.dark body { background: #1a1815; }
-body { font-family: 'Nikosh', 'Kalpurush', system-ui, sans-serif; color: #1a1815; }
+body { font-family: var(--ui-font); color: #1a1815; }
 html.dark body { color: #e7e5e4; }
 
 .a4-page { width: 210mm; height: 297mm; padding: 15mm; box-sizing: border-box; background: #fff; color: #000; position: relative; overflow: hidden; }
@@ -31,13 +54,29 @@ html.dark body { color: #e7e5e4; }
 .mcq-opts { display: flex; flex-wrap: wrap; gap: 2px 20px; margin-left: 2.1em; margin-top: 2px; line-height: 1.4; }
 .mcq-opt { display: inline-flex; align-items: baseline; white-space: nowrap; }
 .mcq-opt b { font-weight: 700; margin-right: 3px; }
+.omr-letter { font-family: 'BanglaOMR', 'SutonnyMJ', 'Nikosh', 'Kalpurush', system-ui, sans-serif; }
 
-.img-figure { display: flex; flex-direction: column; align-items: center; vertical-align: top; margin: 4px 0; }
-.img-row { display: flex; flex-wrap: nowrap; gap: 10px; justify-content: center; align-items: flex-start; margin: 6px 0; page-break-inside: avoid; break-inside: avoid; }
-.paper-img { display: block; max-width: 100%; max-height: 140px; object-fit: contain; cursor: pointer; border: 1px dashed transparent; border-radius: 4px; margin: 0 auto; }
+/* ---- Images: compact, left-to-right flow + in-preview resize ---------------------------------
+   Every .img-figure carries its own width as an inline % (imgPctFor() in app.js IMAGE RENDER), so
+   pictures read left → right instead of sitting centred in the middle of the sheet. The grips
+   (.img-resize / .img-size-bar) are screen-only chrome: prepareForCapture() hides them before the
+   PNG/PDF capture and the @media print block below hides them on paper, so they can never reach an
+   export. Colours are fixed (never var(--brand-*)) because they live inside .a4-page. */
+.img-figure { display: flex; flex-direction: column; align-items: flex-start; vertical-align: top; margin: 4px 0; position: relative; flex: 0 0 auto; }
+.img-row { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-start; align-items: flex-start; margin: 6px 0; page-break-inside: avoid; break-inside: avoid; }
+.paper-img { display: block; max-width: 100%; max-height: 110px; object-fit: contain; cursor: pointer; border: 1px dashed transparent; border-radius: 4px; margin: 0; }
 .img-figure .paper-img { max-width: 100%; }
 .paper-img:hover { border-color: #115e59; }
-.img-caption { font-size: 0.78em; text-align: center; margin-top: 3px; font-style: italic; line-height: 1.2; white-space: nowrap; }
+.img-caption { font-size: 0.78em; text-align: center; margin-top: 3px; font-style: italic; line-height: 1.2; white-space: nowrap; width: 100%; }
+.img-resize { position: absolute; right: 2px; bottom: 2px; width: 18px; height: 18px; border-radius: 4px; background: #0369a1; color: #fff; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35); display: flex; align-items: center; justify-content: center; cursor: nwse-resize; opacity: 0.55; transition: opacity 0.15s; touch-action: none; z-index: 7; }
+.img-figure:hover .img-resize, body.img-resizing .img-resize { opacity: 1; }
+.img-size-bar { position: absolute; left: 2px; top: 2px; display: flex; align-items: center; gap: 3px; opacity: 0; pointer-events: none; transition: opacity 0.15s; z-index: 7; }
+.img-figure:hover .img-size-bar, body.img-resizing .img-size-bar { opacity: 1; pointer-events: auto; }
+.img-size-btn { width: 19px; height: 19px; border-radius: 999px; border: 0; padding: 0; background: #0369a1; color: #fff; display: flex; align-items: center; justify-content: center; cursor: pointer; font-family: inherit; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+.img-size-btn:hover { background: #075985; }
+.img-size-val { background: #0369a1; color: #fff; border-radius: 999px; padding: 1px 6px; font-size: 0.6em; font-weight: 700; line-height: 1.4; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3); }
+body.img-resizing, body.img-resizing * { cursor: nwse-resize; user-select: none; }
+@media (hover: none) { .img-resize, .img-size-bar { opacity: 1; pointer-events: auto; } }
 
 .qp-table { border-collapse: collapse; margin: 6px auto; max-width: 100%; font-size: 0.95em; }
 .qp-table td, .qp-table th { border: 1px solid #000; padding: 3px 8px; text-align: left; vertical-align: top; }
@@ -101,8 +140,16 @@ html.dark .block-q.is-duplicate::before { color: #fbbf24; }
 .icon-sun, .icon-moon { transition: opacity 0.15s; }
 html:not(.dark) .icon-sun { display: none; }
 html.dark .icon-moon { display: none; }
-.mode-btn.active { background: #115e59; color: #fff; box-shadow: 0 1px 3px rgba(17, 94, 89, 0.3); }
-html.dark .mode-btn.active { background: #2b726d; }
+.mode-btn.active { background: rgb(var(--brand-600)); color: #fff; box-shadow: 0 1px 3px rgba(17, 94, 89, 0.3); }
+html.dark .mode-btn.active { background: rgb(var(--brand-500)); }
+.settings-chip.active { background: rgb(var(--brand-600)); color: #fff; box-shadow: 0 1px 3px rgba(17, 94, 89, 0.3); }
+html.dark .settings-chip.active { background: rgb(var(--brand-500)); }
+input[type="range"], input[type="checkbox"] { accent-color: rgb(var(--brand-600)); }
+.accent-swatch { width: 38px; height: 38px; border-radius: 999px; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18); cursor: pointer; padding: 0; transition: transform 0.15s, box-shadow 0.15s; }
+html.dark .accent-swatch { border-color: #262220; }
+.accent-swatch:hover { transform: scale(1.08); }
+.accent-swatch.active { box-shadow: 0 0 0 3px rgb(var(--brand-500)); }
+#settingsModal { backdrop-filter: blur(4px); }
 .mic-btn.recording { background: #dc2626 !important; color: #fff !important; animation: savePulse 1s ease-in-out infinite; }
 
 textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; font-size: 15px; line-height: 1.6; }
@@ -116,8 +163,8 @@ textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; 
 #imgEditorCanvas { max-width: 100%; max-height: 55vh; display: block; cursor: crosshair; user-select: none; touch-action: none; }
 #cropOverlay {
   position: absolute;
-  border: 2px dashed #115e59;
-  background: rgba(17, 94, 89, 0.12);
+  border: 2px dashed rgb(var(--brand-600));
+  background: rgb(var(--brand-600) / 0.12);
   box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
   pointer-events: none;
   display: none;
@@ -125,7 +172,7 @@ textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; 
 .crop-handle {
   position: absolute;
   width: 14px; height: 14px;
-  background: #115e59;
+  background: rgb(var(--brand-600));
   border: 2px solid #fff;
   border-radius: 50%;
   pointer-events: none;
@@ -134,7 +181,7 @@ textarea.bijoy-font { font-family: 'SutonnyMJ', 'Nikosh', monospace !important; 
 }
 .crop-handle-n, .crop-handle-s { width: 18px; height: 8px; border-radius: 3px; }
 .crop-handle-w, .crop-handle-e { width: 8px; height: 18px; border-radius: 3px; }
-.img-filter-btn.active { background: #115e59; color: #fff; border-color: #115e59; }
+.img-filter-btn.active { background: rgb(var(--brand-600)); color: #fff; border-color: rgb(var(--brand-600)); }
 #exportLoading { backdrop-filter: blur(4px); }
 
 #mathPaletteModal { top: 50%; left: 50%; transform: translate(-50%, -50%); }
@@ -154,8 +201,38 @@ html.dark #mathPaletteContent button {
   color: #e7e5e4;
   border-color: rgba(255,255,255,0.1);
 }
-#mathPaletteContent button:hover { background: #eef6f5; }
-html.dark #mathPaletteContent button:hover { background: #115e59; }
+#mathPaletteContent button:hover { background: rgb(var(--brand-50)); }
+html.dark #mathPaletteContent button:hover { background: rgb(var(--brand-600)); }
+
+/* ---- Task-6: the app UI uses 2x type; the printed paper keeps its own type -------------------
+   UI = everything that is not the paper (header, settings column, preview toolbar, modals,
+   badges, in-paper edit affordances). The paper (#page1 / #page2) carries its own font-size from
+   the ফন্ট সাইজ field, so `body` above never reaches it. Add new UI text with the doubled values.
+   Every size below is multiplied by --ui-scale (সেটিংস → ইন্টারফেস লেখার আকার). */
+body { font-size: calc(24px * var(--ui-scale)); }
+.a4-page { font-size: 16px; }
+
+.text-4xl:not(.a4-page *) { font-size: calc(54px * var(--ui-scale)); line-height: calc(60px * var(--ui-scale)); }
+.text-3xl:not(.a4-page *) { font-size: calc(45px * var(--ui-scale)); line-height: calc(54px * var(--ui-scale)); }
+.text-2xl:not(.a4-page *) { font-size: calc(36px * var(--ui-scale)); line-height: calc(48px * var(--ui-scale)); }
+.text-xl:not(.a4-page *) { font-size: calc(30px * var(--ui-scale)); line-height: calc(42px * var(--ui-scale)); }
+.text-lg:not(.a4-page *) { font-size: calc(27px * var(--ui-scale)); line-height: calc(42px * var(--ui-scale)); }
+.text-base:not(.a4-page *) { font-size: calc(24px * var(--ui-scale)); line-height: calc(36px * var(--ui-scale)); }
+.text-sm:not(.a4-page *) { font-size: calc(21px * var(--ui-scale)); line-height: calc(30px * var(--ui-scale)); }
+.text-xs:not(.a4-page *) { font-size: calc(18px * var(--ui-scale)); line-height: calc(24px * var(--ui-scale)); }
+.text-\[10px\]:not(.a4-page *) { font-size: calc(15px * var(--ui-scale)); }
+.text-\[10\.5px\]:not(.a4-page *) { font-size: calc(16px * var(--ui-scale)); }
+.text-\[11px\]:not(.a4-page *) { font-size: calc(17px * var(--ui-scale)); }
+.text-\[12px\]:not(.a4-page *) { font-size: calc(18px * var(--ui-scale)); }
+.text-\[13px\]:not(.a4-page *) { font-size: calc(20px * var(--ui-scale)); }
+
+#mathPaletteContent button { font-size: calc(21px * var(--ui-scale)); }
+textarea.bijoy-font { font-size: calc(23px * var(--ui-scale)); }
+
+.insert-btn, .insert-img-btn { font-size: calc(17px * var(--ui-scale)); padding: 6px 17px; }
+.table-wrapper .table-remove { font-size: calc(17px * var(--ui-scale)); width: 30px; height: 30px; }
+.section-divider .delete-div { font-size: calc(17px * var(--ui-scale)); width: 30px; height: 30px; }
+.block-q.is-duplicate::before { font-size: calc(14px * var(--ui-scale)); }
 
 @media print {
   @page { size: A4; margin: 0; }
@@ -166,6 +243,7 @@ html.dark #mathPaletteContent button:hover { background: #115e59; }
   .section-divider .delete-div { display: none !important; }
   .table-wrapper .table-remove { display: none !important; }
   .paper-img { cursor: default; border: 0 !important; }
+  .img-resize, .img-size-bar { display: none !important; }
   .paper-block .question-clickable:hover { background: none !important; }
   .block-q.is-duplicate { background: none !important; border-left: 0 !important; padding: 0 !important; }
   .block-q.is-duplicate::before { display: none !important; }
